@@ -6,6 +6,7 @@ import net.runelite.api.Client;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -52,6 +53,9 @@ public class ItemTrackerPlugin extends Plugin
     @Inject
     private ScheduledExecutorService executor;
 
+    @Inject
+    private WikiRealtimePriceClient wikiPriceClient;
+
     // itemId -> TrackedItem
     private final Map<Integer, TrackedItem> trackedItems = new LinkedHashMap<>();
 
@@ -76,7 +80,8 @@ public class ItemTrackerPlugin extends Plugin
                 this::addTrackedItem,
                 this::removeTrackedItem,
                 config::itemValueFormat,
-                config::totalValueFormat
+                config::totalValueFormat,
+                config::priceDisplay
         );
 
         final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
@@ -190,8 +195,8 @@ public class ItemTrackerPlugin extends Plugin
 
             syncQuantitiesForItem(tracked);
             persistTrackedItems();
-            refreshGePrices();
             refreshPanel();
+            refreshGePrices(); // async HTTP fetch, updates panel again when done
         });
     }
 
@@ -208,13 +213,22 @@ public class ItemTrackerPlugin extends Plugin
 
     private void refreshGePrices()
     {
-        clientThread.invokeLater(() ->
+        // Runs on the executor thread (not the client thread) — HTTP is fine here
+        executor.execute(() ->
         {
+            Map<Integer, WikiRealtimePriceClient.ItemPrices> all = wikiPriceClient.fetchAll();
+
             for (TrackedItem item : trackedItems.values())
             {
-                long price = itemManager.getItemPrice(item.getItemId());
-                item.setGePrice(price);
+                WikiRealtimePriceClient.ItemPrices prices = all.get(item.getItemId());
+                if (prices != null)
+                {
+                    item.setHighPrice(prices.getHigh());
+                    item.setLowPrice(prices.getLow());
+                    item.setAvgPrice(prices.avg());
+                }
             }
+
             lastPriceRefresh = Instant.now();
             refreshPanel();
         });
@@ -223,6 +237,27 @@ public class ItemTrackerPlugin extends Plugin
     // -----------------------------------------------------------------------
     // Inventory / bank event handling
     // -----------------------------------------------------------------------
+
+    @Subscribe
+    public void onConfigChanged(ConfigChanged event)
+    {
+        if (!"itemtracker".equals(event.getGroup()))
+        {
+            return;
+        }
+
+        switch (event.getKey())
+        {
+            case "itemValueFormat":
+            case "totalValueFormat":
+            case "priceDisplay":
+                refreshPanel();
+                break;
+            case "geRefreshRate":
+                scheduleRefresh();
+                break;
+        }
+    }
 
     @Subscribe
     public void onItemContainerChanged(ItemContainerChanged event)

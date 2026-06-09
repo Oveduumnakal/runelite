@@ -46,6 +46,16 @@ public interface ItemTrackerConfig extends Config
         return ValueFormat.ABBREVIATED;
     }
 
+    @ConfigItem(
+            keyName = "priceDisplay",
+            name = "Price Display",
+            description = "Which prices to show per item and in the totals"
+    )
+    default PriceDisplay priceDisplay()
+    {
+        return PriceDisplay.BOTH;
+    }
+
     @Range(min = 60)
     @ConfigItem(
             keyName = "geRefreshRate",
