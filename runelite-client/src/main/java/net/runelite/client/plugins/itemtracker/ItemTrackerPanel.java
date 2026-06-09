@@ -290,7 +290,8 @@ public class ItemTrackerPanel extends PluginPanel
 
             totalHighLabel.setText("High:  " + (hasPrices ? formatGp(totalHigh, totalFmt) : "—"));
             totalLowLabel.setText( "Low:   " + (hasPrices ? formatGp(totalLow,  totalFmt) : "—"));
-            totalAvgLabel.setText( "Avg:   " + (hasPrices ? formatGp(totalAvg,  totalFmt) : "—"));
+            String avgTotalLabel = display == PriceDisplay.AVERAGE ? "Value" : "Avg";
+            totalAvgLabel.setText(avgTotalLabel + ":   " + (hasPrices ? formatGp(totalAvg, totalFmt) : "—"));
 
             trackedItemsPanel.revalidate();
             trackedItemsPanel.repaint();
@@ -347,7 +348,8 @@ public class ItemTrackerPanel extends PluginPanel
             }
             if (showAvg)
             {
-                centerPanel.add(makePriceRow("Avg",  formatGp(item.getAvgValue(),  fmt), COLOR_AVG));
+                String avgLabel = display == PriceDisplay.AVERAGE ? "Value" : "Avg";
+                centerPanel.add(makePriceRow(avgLabel, formatGp(item.getAvgValue(), fmt), COLOR_AVG));
             }
         }
 

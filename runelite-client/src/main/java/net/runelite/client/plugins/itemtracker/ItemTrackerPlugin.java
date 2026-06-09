@@ -2,10 +2,16 @@ package net.runelite.client.plugins.itemtracker;
 
 import com.google.inject.Provides;
 import lombok.extern.slf4j.Slf4j;
+import com.google.common.collect.ImmutableSet;
 import net.runelite.api.Client;
+import net.runelite.api.EnumComposition;
+import net.runelite.api.EnumID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -56,12 +62,50 @@ public class ItemTrackerPlugin extends Plugin
     @Inject
     private WikiRealtimePriceClient wikiPriceClient;
 
+    private static final int[] RUNE_POUCH_TYPE_VARBITS = {
+            VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_TYPE_3,
+            VarbitID.RUNE_POUCH_TYPE_4, VarbitID.RUNE_POUCH_TYPE_5, VarbitID.RUNE_POUCH_TYPE_6
+    };
+    private static final int[] RUNE_POUCH_QUANTITY_VARBITS = {
+            VarbitID.RUNE_POUCH_QUANTITY_1, VarbitID.RUNE_POUCH_QUANTITY_2, VarbitID.RUNE_POUCH_QUANTITY_3,
+            VarbitID.RUNE_POUCH_QUANTITY_4, VarbitID.RUNE_POUCH_QUANTITY_5, VarbitID.RUNE_POUCH_QUANTITY_6
+    };
+    private static final ImmutableSet<Integer> RUNE_POUCH_VARBITS;
+    static
+    {
+        ImmutableSet.Builder<Integer> b = ImmutableSet.builder();
+        for (int v : RUNE_POUCH_TYPE_VARBITS) b.add(v);
+        for (int v : RUNE_POUCH_QUANTITY_VARBITS) b.add(v);
+        RUNE_POUCH_VARBITS = b.build();
+    }
+
+    /**
+     * All item containers we scan for tracked items.
+     * Note: herb sack, coal bag, gem bag, fur/meat pouch, and bolt pouch
+     * store their contents via VarBits with no named IDs in the RuneLite API.
+     * The rune pouch is handled separately via {@link #syncRunePouch()}.
+     */
+    private static final ImmutableSet<Integer> TRACKED_CONTAINERS = ImmutableSet.of(
+            InventoryID.INV,              // main inventory
+            InventoryID.WORN,             // equipped items
+            InventoryID.BANK,             // bank
+            InventoryID.LOOTING_BAG,      // looting bag
+            InventoryID.SEED_BOX,         // seed box
+            InventoryID.SEED_VAULT,       // seed vault
+            InventoryID.TACKLE_BOX,       // tackle box
+            InventoryID.FORESTRY_KIT,     // forestry kit / log basket
+            InventoryID.HUNTSMANS_KIT,    // huntsman's kit
+            InventoryID.BARBARIAN_KNAPSACK // barbarian knapsack
+    );
+
     // itemId -> TrackedItem
     private final Map<Integer, TrackedItem> trackedItems = new LinkedHashMap<>();
 
-    // Last known container counts
-    private final Map<Integer, Integer> lastInventoryCount = new HashMap<>();
-    private final Map<Integer, Integer> lastBankCount = new HashMap<>();
+    // containerId -> (itemId -> quantity)  — one entry per TRACKED_CONTAINERS
+    private final Map<Integer, Map<Integer, Integer>> containerCounts = new HashMap<>();
+
+    // itemId -> quantity for rune pouch contents (read from VarBits)
+    private final Map<Integer, Integer> runePouchCounts = new HashMap<>();
 
     private ItemTrackerPanel panel;
     private NavigationButton navButton;
@@ -108,8 +152,8 @@ public class ItemTrackerPlugin extends Plugin
             priceRefreshTask = null;
         }
         trackedItems.clear();
-        lastInventoryCount.clear();
-        lastBankCount.clear();
+        containerCounts.clear();
+        runePouchCounts.clear();
         lastPriceRefresh = null;
     }
 
@@ -263,70 +307,104 @@ public class ItemTrackerPlugin extends Plugin
     public void onItemContainerChanged(ItemContainerChanged event)
     {
         int containerId = event.getContainerId();
-
-        if (containerId == 93)
-        {
-            updateCountsFromContainer(event.getItemContainer(), lastInventoryCount);
-        }
-        else if (containerId == 95)
-        {
-            updateCountsFromContainer(event.getItemContainer(), lastBankCount);
-        }
-        else
+        if (!TRACKED_CONTAINERS.contains(containerId))
         {
             return;
         }
 
-        for (TrackedItem item : trackedItems.values())
+        // Rebuild the count snapshot for this container
+        Map<Integer, Integer> counts = containerCounts.computeIfAbsent(containerId, k -> new HashMap<>());
+        counts.clear();
+        ItemContainer container = event.getItemContainer();
+        if (container != null)
         {
-            int inv = lastInventoryCount.getOrDefault(item.getItemId(), 0);
-            int bank = lastBankCount.getOrDefault(item.getItemId(), 0);
-            item.setQuantity(inv + bank);
+            for (Item item : container.getItems())
+            {
+                if (item.getId() > 0)
+                {
+                    counts.merge(item.getId(), item.getQuantity(), Integer::sum);
+                }
+            }
         }
 
+        recomputeAllQuantities();
         refreshPanel();
     }
 
-    private void updateCountsFromContainer(ItemContainer container, Map<Integer, Integer> countMap)
+    @Subscribe
+    public void onVarbitChanged(VarbitChanged event)
     {
-        countMap.clear();
-        if (container == null) return;
-
-        for (Item item : container.getItems())
+        if (RUNE_POUCH_VARBITS.contains(event.getVarbitId()))
         {
-            if (item.getId() <= 0) continue;
-            countMap.merge(item.getId(), item.getQuantity(), Integer::sum);
+            syncRunePouch();
+            recomputeAllQuantities();
+            refreshPanel();
+        }
+    }
+
+    /** Reads all 6 rune pouch slots from VarBits and rebuilds {@link #runePouchCounts}. Must be on client thread. */
+    private void syncRunePouch()
+    {
+        runePouchCounts.clear();
+        EnumComposition runeEnum = client.getEnum(EnumID.RUNEPOUCH_RUNE);
+        for (int i = 0; i < RUNE_POUCH_TYPE_VARBITS.length; i++)
+        {
+            int typeId = client.getVarbitValue(RUNE_POUCH_TYPE_VARBITS[i]);
+            int qty    = client.getVarbitValue(RUNE_POUCH_QUANTITY_VARBITS[i]);
+            if (typeId == 0 || qty <= 0)
+            {
+                continue;
+            }
+            int itemId = runeEnum.getIntValue(typeId);
+            runePouchCounts.merge(itemId, qty, Integer::sum);
+        }
+    }
+
+    /** Recomputes quantities for all tracked items from all container + rune pouch snapshots. */
+    private void recomputeAllQuantities()
+    {
+        for (TrackedItem tracked : trackedItems.values())
+        {
+            int total = runePouchCounts.getOrDefault(tracked.getItemId(), 0);
+            for (Map<Integer, Integer> c : containerCounts.values())
+            {
+                total += c.getOrDefault(tracked.getItemId(), 0);
+            }
+            tracked.setQuantity(total);
         }
     }
 
     private void syncQuantitiesForItem(TrackedItem tracked)
     {
-        int total = 0;
-
-        ItemContainer inv = client.getItemContainer(93);
-        if (inv != null)
+        // Snapshot all currently loaded item containers
+        for (int containerId : TRACKED_CONTAINERS)
         {
-            for (Item item : inv.getItems())
+            ItemContainer container = client.getItemContainer(containerId);
+            if (container == null)
             {
-                if (item.getId() == tracked.getItemId())
+                continue;
+            }
+
+            Map<Integer, Integer> counts = containerCounts.computeIfAbsent(containerId, k -> new HashMap<>());
+            counts.clear();
+            for (Item item : container.getItems())
+            {
+                if (item.getId() > 0)
                 {
-                    total += item.getQuantity();
+                    counts.merge(item.getId(), item.getQuantity(), Integer::sum);
                 }
             }
         }
 
-        ItemContainer bank = client.getItemContainer(95);
-        if (bank != null)
-        {
-            for (Item item : bank.getItems())
-            {
-                if (item.getId() == tracked.getItemId())
-                {
-                    total += item.getQuantity();
-                }
-            }
-        }
+        // Snapshot rune pouch
+        syncRunePouch();
 
+        // Sum across all sources for this item
+        int total = runePouchCounts.getOrDefault(tracked.getItemId(), 0);
+        for (Map<Integer, Integer> c : containerCounts.values())
+        {
+            total += c.getOrDefault(tracked.getItemId(), 0);
+        }
         tracked.setQuantity(total);
     }
 
