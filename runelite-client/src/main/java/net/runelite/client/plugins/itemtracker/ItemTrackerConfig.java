@@ -28,7 +28,7 @@ public interface ItemTrackerConfig extends Config
 
     @ConfigItem(
             keyName = "itemValueFormat",
-            name = "Item Value Format",
+            name = "Price Format (Item)",
             description = "How to display the value of individual tracked items"
     )
     default ValueFormat itemValueFormat()
@@ -38,7 +38,7 @@ public interface ItemTrackerConfig extends Config
 
     @ConfigItem(
             keyName = "totalValueFormat",
-            name = "Total Value Format",
+            name = "Price Format (Total)",
             description = "How to display the running total value"
     )
     default ValueFormat totalValueFormat()
@@ -59,7 +59,7 @@ public interface ItemTrackerConfig extends Config
     @Range(min = 60)
     @ConfigItem(
             keyName = "geRefreshRate",
-            name = "GE Price Refresh Rate (seconds)",
+            name = "Price Refresh (Seconds)",
             description = "How often to refresh GE prices. Minimum 60 seconds."
     )
     default int geRefreshRate()

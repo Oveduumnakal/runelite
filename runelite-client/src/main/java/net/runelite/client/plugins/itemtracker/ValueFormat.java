@@ -2,8 +2,8 @@ package net.runelite.client.plugins.itemtracker;
 
 public enum ValueFormat
 {
-    ABBREVIATED("Abbreviated (1.5K, 2.3M)"),
-    FULL("Full (1,500, 2,300,000)");
+    ABBREVIATED("Short (K,M,B)"),
+    FULL("Full (x,xxx)");
 
     private final String displayName;
 
