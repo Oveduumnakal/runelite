@@ -125,7 +125,8 @@ public class ItemTrackerPlugin extends Plugin
                 this::removeTrackedItem,
                 config::itemValueFormat,
                 config::totalValueFormat,
-                config::priceDisplay
+                config::priceDisplay,
+                config::geRefreshRate
         );
 
         final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");

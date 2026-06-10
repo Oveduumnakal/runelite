@@ -40,6 +40,7 @@ public class ItemTrackerPanel extends PluginPanel
     private final Supplier<ValueFormat> itemValueFormatSupplier;
     private final Supplier<ValueFormat> totalValueFormatSupplier;
     private final Supplier<PriceDisplay> priceDisplaySupplier;
+    private final Supplier<Integer> refreshRateSupplier;
 
     // Search area
     private final IconTextField searchField;
@@ -67,7 +68,8 @@ public class ItemTrackerPanel extends PluginPanel
             Consumer<Integer> onRemoveItem,
             Supplier<ValueFormat> itemValueFormatSupplier,
             Supplier<ValueFormat> totalValueFormatSupplier,
-            Supplier<PriceDisplay> priceDisplaySupplier)
+            Supplier<PriceDisplay> priceDisplaySupplier,
+            Supplier<Integer> refreshRateSupplier)
     {
         this.itemManager = itemManager;
         this.onAddItem = onAddItem;
@@ -75,6 +77,7 @@ public class ItemTrackerPanel extends PluginPanel
         this.itemValueFormatSupplier = itemValueFormatSupplier;
         this.totalValueFormatSupplier = totalValueFormatSupplier;
         this.priceDisplaySupplier = priceDisplaySupplier;
+        this.refreshRateSupplier = refreshRateSupplier;
 
         setLayout(new BorderLayout(0, 8));
         setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -208,7 +211,9 @@ public class ItemTrackerPanel extends PluginPanel
         else
         {
             long secondsAgo = ChronoUnit.SECONDS.between(lastPriceRefresh, Instant.now());
-            lastRefreshLabel.setText("Prices fetched " + formatAge(secondsAgo) + " ago");
+            long rate = Math.max(60, refreshRateSupplier.get());
+            long secondsUntil = Math.max(0, rate - secondsAgo);
+            lastRefreshLabel.setText("Price refresh in " + secondsUntil + " seconds");
         }
     }
 
@@ -389,7 +394,7 @@ public class ItemTrackerPanel extends PluginPanel
         nameLabel.setForeground(Color.WHITE);
         nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 11f));
 
-        JLabel qtyLabel = new JLabel("x" + NUMBER_FORMAT.format(item.getQuantity()));
+        JLabel qtyLabel = new JLabel("Qty: " + NUMBER_FORMAT.format(item.getQuantity()));
         qtyLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
         qtyLabel.setFont(qtyLabel.getFont().deriveFont(11f));
 
@@ -542,12 +547,5 @@ public class ItemTrackerPanel extends PluginPanel
             return String.format("%.1fK gp", value / 1_000.0);
         }
         return NUMBER_FORMAT.format(value) + " gp";
-    }
-
-    private String formatAge(long seconds)
-    {
-        if (seconds < 60) return seconds + "s";
-        if (seconds < 3600) return (seconds / 60) + "m";
-        return (seconds / 3600) + "h";
     }
 }
