@@ -131,13 +131,15 @@ public class ItemTrackerPanel extends PluginPanel
 
         JLabel totalsTitle = new JLabel("Estimated GE Sell Value", SwingConstants.CENTER);
         totalsTitle.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-        totalsTitle.setFont(totalsTitle.getFont().deriveFont(Font.BOLD, 10f));
+        totalsTitle.setFont(totalsTitle.getFont().deriveFont(Font.BOLD, 12f));
         totalsTitle.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createCompoundBorder(
                 new EmptyBorder(10, 0, 0, 0),
                 new MatteBorder(1, 0, 0, 0, new Color(80, 80, 80))
             ),
-            new EmptyBorder(10, 0, 4, 0)
+            // 12px below the title to match the "Tracked Items" -> first item gap
+            // (4px label inset + the main panel's 8px BorderLayout vgap)
+            new EmptyBorder(10, 0, 12, 0)
         ));
 
         JPanel totalsRows = new JPanel();
