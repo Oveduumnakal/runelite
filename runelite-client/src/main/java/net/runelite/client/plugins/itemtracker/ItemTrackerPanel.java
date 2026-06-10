@@ -16,6 +16,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.text.NumberFormat;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -51,6 +52,9 @@ public class ItemTrackerPanel extends PluginPanel
     private final JLabel totalHighLabel;
     private final JLabel totalLowLabel;
     private final JLabel totalAvgLabel;
+    private final JPanel totalHighRow;
+    private final JPanel totalLowRow;
+    private final JPanel totalAvgRow;
     private final JLabel lastRefreshLabel;
 
     private volatile Instant lastPriceRefresh = null;
@@ -107,21 +111,34 @@ public class ItemTrackerPanel extends PluginPanel
         trackedItemsPanel.setLayout(new BoxLayout(trackedItemsPanel, BoxLayout.Y_AXIS));
         trackedItemsPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-        JLabel trackedLabel = new JLabel("Tracked Items");
+        JLabel trackedLabel = new JLabel("Tracked Items", SwingConstants.CENTER);
         trackedLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
         trackedLabel.setFont(trackedLabel.getFont().deriveFont(Font.BOLD, 12f));
         trackedLabel.setBorder(new EmptyBorder(6, 0, 4, 0));
 
+        JPanel trackedLabelWrapper = new JPanel(new BorderLayout());
+        trackedLabelWrapper.setBackground(ColorScheme.DARK_GRAY_COLOR);
+        trackedLabelWrapper.add(trackedLabel, BorderLayout.CENTER);
+
         // --- Totals panel ---
-        JPanel totalsPanel = new JPanel();
-        totalsPanel.setLayout(new BoxLayout(totalsPanel, BoxLayout.Y_AXIS));
+        JPanel totalsPanel = new JPanel(new BorderLayout());
         totalsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         totalsPanel.setBorder(new EmptyBorder(6, 8, 6, 8));
 
-        JLabel totalsTitle = new JLabel("TOTALS");
+        JLabel totalsTitle = new JLabel("Estimated GE Sell Value", SwingConstants.CENTER);
         totalsTitle.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
         totalsTitle.setFont(totalsTitle.getFont().deriveFont(Font.BOLD, 10f));
-        totalsTitle.setBorder(new EmptyBorder(0, 0, 4, 0));
+        totalsTitle.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createCompoundBorder(
+                new EmptyBorder(10, 0, 0, 0),
+                new MatteBorder(1, 0, 0, 0, new Color(80, 80, 80))
+            ),
+            new EmptyBorder(10, 0, 4, 0)
+        ));
+
+        JPanel totalsRows = new JPanel();
+        totalsRows.setLayout(new BoxLayout(totalsRows, BoxLayout.Y_AXIS));
+        totalsRows.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
         totalHighLabel = new JLabel("High:  —");
         totalHighLabel.setForeground(COLOR_HIGH);
@@ -135,10 +152,22 @@ public class ItemTrackerPanel extends PluginPanel
         totalAvgLabel.setForeground(COLOR_AVG);
         totalAvgLabel.setFont(totalAvgLabel.getFont().deriveFont(Font.BOLD, 11f));
 
-        totalsPanel.add(totalsTitle);
-        totalsPanel.add(totalHighLabel);
-        totalsPanel.add(totalLowLabel);
-        totalsPanel.add(totalAvgLabel);
+        totalHighRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 3));
+        totalHighRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        totalHighRow.add(totalHighLabel);
+
+        totalLowRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 3));
+        totalLowRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        totalLowRow.add(totalLowLabel);
+
+        totalAvgRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 3));
+        totalAvgRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        totalAvgRow.add(totalAvgLabel);
+
+        totalsRows.add(totalHighRow);
+        totalsRows.add(totalLowRow);
+        totalsRows.add(totalAvgRow);
+        totalsPanel.add(totalsRows, BorderLayout.CENTER);
 
         // --- Last refresh label ---
         lastRefreshLabel = new JLabel("Prices not yet loaded");
@@ -146,11 +175,11 @@ public class ItemTrackerPanel extends PluginPanel
         lastRefreshLabel.setFont(lastRefreshLabel.getFont().deriveFont(Font.ITALIC, 10f));
         lastRefreshLabel.setBorder(new EmptyBorder(4, 0, 0, 0));
 
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
+        JPanel bottomPanel = new JPanel(new BorderLayout(0, 0));
         bottomPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-        bottomPanel.add(totalsPanel);
-        bottomPanel.add(lastRefreshLabel);
+        bottomPanel.add(totalsTitle, BorderLayout.NORTH);
+        bottomPanel.add(totalsPanel, BorderLayout.CENTER);
+        bottomPanel.add(lastRefreshLabel, BorderLayout.SOUTH);
 
         JPanel topPanel = new JPanel();
         topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
@@ -159,7 +188,7 @@ public class ItemTrackerPanel extends PluginPanel
         topPanel.add(searchField);
         topPanel.add(Box.createVerticalStrut(4));
         topPanel.add(searchResultsPanel);
-        topPanel.add(trackedLabel);
+        topPanel.add(trackedLabelWrapper);
 
         add(topPanel, BorderLayout.NORTH);
         add(trackedItemsPanel, BorderLayout.CENTER);
@@ -178,7 +207,7 @@ public class ItemTrackerPanel extends PluginPanel
         else
         {
             long secondsAgo = ChronoUnit.SECONDS.between(lastPriceRefresh, Instant.now());
-            lastRefreshLabel.setText("Prices updated " + formatAge(secondsAgo) + " ago");
+            lastRefreshLabel.setText("Prices fetched " + formatAge(secondsAgo) + " ago");
         }
     }
 
@@ -243,7 +272,16 @@ public class ItemTrackerPanel extends PluginPanel
 
             @Override
             public void mouseExited(MouseEvent e) { row.setBackground(ColorScheme.DARKER_GRAY_COLOR); }
+
+            @Override
+            public void mouseClicked(MouseEvent e)
+            {
+                onAddItem.accept(itemId);
+                searchField.setText("");
+                searchResultsPanel.setVisible(false);
+            }
         });
+        row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         return row;
     }
@@ -262,11 +300,15 @@ public class ItemTrackerPanel extends PluginPanel
 
             if (items.isEmpty())
             {
-                JLabel empty = new JLabel("No items tracked. Search above to add one.");
+                JLabel empty = new JLabel("No items tracked. Search above to add one.", SwingConstants.CENTER);
                 empty.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
                 empty.setFont(empty.getFont().deriveFont(Font.ITALIC, 11f));
                 empty.setBorder(new EmptyBorder(8, 0, 0, 0));
-                trackedItemsPanel.add(empty);
+
+                JPanel emptyWrapper = new JPanel(new BorderLayout());
+                emptyWrapper.setBackground(ColorScheme.DARK_GRAY_COLOR);
+                emptyWrapper.add(empty, BorderLayout.CENTER);
+                trackedItemsPanel.add(emptyWrapper);
             }
             else
             {
@@ -284,9 +326,9 @@ public class ItemTrackerPanel extends PluginPanel
             boolean showHighLow = display == PriceDisplay.HIGH_LOW || display == PriceDisplay.BOTH;
             boolean showAvg     = display == PriceDisplay.AVERAGE  || display == PriceDisplay.BOTH;
 
-            totalHighLabel.setVisible(showHighLow);
-            totalLowLabel.setVisible(showHighLow);
-            totalAvgLabel.setVisible(showAvg);
+            totalHighRow.setVisible(showHighLow);
+            totalLowRow.setVisible(showHighLow);
+            totalAvgRow.setVisible(showAvg);
 
             totalHighLabel.setText("High:  " + (hasPrices ? formatGp(totalHigh, totalFmt) : "—"));
             totalLowLabel.setText( "Low:   " + (hasPrices ? formatGp(totalLow,  totalFmt) : "—"));
@@ -305,35 +347,62 @@ public class ItemTrackerPanel extends PluginPanel
         card.setBorder(new EmptyBorder(6, 8, 6, 8));
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
-        // Item icon
+        // Icon — vertically centered
         JLabel iconLabel = new JLabel();
         iconLabel.setPreferredSize(new Dimension(32, 32));
-        iconLabel.setVerticalAlignment(SwingConstants.TOP);
+        iconLabel.setVerticalAlignment(SwingConstants.CENTER);
         AsyncBufferedImage icon = itemManager.getImage(item.getItemId());
         icon.addTo(iconLabel);
         card.add(iconLabel, BorderLayout.WEST);
 
-        // Center: name + qty + high/low/avg
+        // Remove button — top-right, hidden until hover
+        final Color REMOVE_COLOR = new Color(200, 60, 60);
+        final Color REMOVE_HIDDEN = new Color(0, 0, 0, 0);
+        JButton removeBtn = new JButton("✕");
+        removeBtn.setPreferredSize(new Dimension(20, 20));
+        removeBtn.setMargin(new Insets(0, 0, 0, 0));
+        removeBtn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        removeBtn.setForeground(REMOVE_HIDDEN);
+        removeBtn.setFont(removeBtn.getFont().deriveFont(removeBtn.getFont().getSize() * 2f / 3f));
+        removeBtn.setFocusPainted(false);
+        removeBtn.setBorderPainted(false);
+        removeBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        removeBtn.setToolTipText("Remove from tracking");
+        removeBtn.addActionListener(e -> onRemoveItem.accept(item.getItemId()));
+
+        JPanel eastPanel = new JPanel(new BorderLayout());
+        eastPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        eastPanel.add(removeBtn, BorderLayout.NORTH);
+        card.add(eastPanel, BorderLayout.EAST);
+
+        // Center: 3 rows
         JPanel centerPanel = new JPanel();
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
         centerPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
+        // Row 1: name + qty on same line
         JLabel nameLabel = new JLabel(item.getName());
         nameLabel.setForeground(Color.WHITE);
         nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 11f));
 
-        JLabel qtyLabel = new JLabel("Qty: " + NUMBER_FORMAT.format(item.getQuantity()));
+        JLabel qtyLabel = new JLabel("x" + NUMBER_FORMAT.format(item.getQuantity()));
         qtyLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
         qtyLabel.setFont(qtyLabel.getFont().deriveFont(11f));
 
-        centerPanel.add(nameLabel);
-        centerPanel.add(qtyLabel);
+        JPanel nameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+        nameRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        nameRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        nameRow.add(nameLabel);
+        nameRow.add(qtyLabel);
+        centerPanel.add(nameRow);
 
+        // Rows 2 & 3: prices
         if (!item.hasPrices())
         {
             JLabel loading = new JLabel("Prices loading...");
             loading.setForeground(new Color(150, 150, 150));
             loading.setFont(loading.getFont().deriveFont(Font.ITALIC, 10f));
+            loading.setAlignmentX(Component.LEFT_ALIGNMENT);
             centerPanel.add(loading);
         }
         else
@@ -343,40 +412,75 @@ public class ItemTrackerPanel extends PluginPanel
 
             if (showHighLow)
             {
-                centerPanel.add(makePriceRow("High", formatGp(item.getHighValue(), fmt), COLOR_HIGH));
-                centerPanel.add(makePriceRow("Low",  formatGp(item.getLowValue(),  fmt), COLOR_LOW));
+                // Row 2: high + low on same line
+                JLabel highLabel = new JLabel("High: " + formatGp(item.getHighValue(), fmt));
+                highLabel.setForeground(COLOR_HIGH);
+                highLabel.setFont(highLabel.getFont().deriveFont(11f));
+
+                JLabel lowLabel = new JLabel("Low: " + formatGp(item.getLowValue(), fmt));
+                lowLabel.setForeground(COLOR_LOW);
+                lowLabel.setFont(lowLabel.getFont().deriveFont(11f));
+
+                JPanel highLowRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+                highLowRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+                highLowRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+                highLowRow.add(highLabel);
+                highLowRow.add(Box.createHorizontalStrut(5));
+                highLowRow.add(lowLabel);
+                centerPanel.add(highLowRow);
             }
+
             if (showAvg)
             {
-                String avgLabel = display == PriceDisplay.AVERAGE ? "Value" : "Avg";
-                centerPanel.add(makePriceRow(avgLabel, formatGp(item.getAvgValue(), fmt), COLOR_AVG));
+                // Row 3: avg
+                String avgLabelText = display == PriceDisplay.AVERAGE ? "Value" : "Avg";
+                JLabel avgLabel = new JLabel(avgLabelText + ": " + formatGp(item.getAvgValue(), fmt));
+                avgLabel.setForeground(COLOR_AVG);
+                avgLabel.setFont(avgLabel.getFont().deriveFont(11f));
+
+                JPanel avgRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+                avgRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+                avgRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+                avgRow.add(avgLabel);
+                centerPanel.add(avgRow);
             }
         }
 
         card.add(centerPanel, BorderLayout.CENTER);
 
-        // Remove button
-        JButton removeBtn = new JButton("✕");
-        removeBtn.setPreferredSize(new Dimension(24, 24));
-        removeBtn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        removeBtn.setForeground(new Color(200, 60, 60));
-        removeBtn.setFocusPainted(false);
-        removeBtn.setBorderPainted(false);
-        removeBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        removeBtn.setToolTipText("Remove from tracking");
-        removeBtn.setVerticalAlignment(SwingConstants.TOP);
-        removeBtn.addActionListener(e -> onRemoveItem.accept(item.getItemId()));
-        card.add(removeBtn, BorderLayout.EAST);
+        MouseAdapter hoverListener = new MouseAdapter()
+        {
+            @Override
+            public void mouseEntered(MouseEvent e)
+            {
+                removeBtn.setForeground(REMOVE_COLOR);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e)
+            {
+                Point p = SwingUtilities.convertPoint((Component) e.getSource(), e.getPoint(), card);
+                if (!card.contains(p))
+                {
+                    removeBtn.setForeground(REMOVE_HIDDEN);
+                }
+            }
+        };
+        addListenerRecursively(card, hoverListener);
 
         return card;
     }
 
-    private JLabel makePriceRow(String label, String value, Color color)
+    private void addListenerRecursively(Component c, MouseListener listener)
     {
-        JLabel lbl = new JLabel(label + ": " + value);
-        lbl.setForeground(color);
-        lbl.setFont(lbl.getFont().deriveFont(11f));
-        return lbl;
+        c.addMouseListener(listener);
+        if (c instanceof Container)
+        {
+            for (Component child : ((Container) c).getComponents())
+            {
+                addListenerRecursively(child, listener);
+            }
+        }
     }
 
     private String formatGp(long value, ValueFormat fmt)
