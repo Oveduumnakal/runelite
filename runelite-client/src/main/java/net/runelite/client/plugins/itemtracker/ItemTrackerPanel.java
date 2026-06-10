@@ -70,6 +70,28 @@ public class ItemTrackerPanel extends PluginPanel
     private final List<JLabel> loadingLabels = new ArrayList<>();
     private final Timer loadingGlowTimer;
 
+    // Price-change indicators (up/down/unchanged), pulsed 0% -> 100% -> 0% opacity on refresh
+    private static final long PULSE_DURATION_MS = 500;
+    private final List<PulseEntry> pulseEntries = new ArrayList<>();
+    private final Timer pulseTimer;
+    private final JLabel totalHighDeltaLabel;
+    private final JLabel totalLowDeltaLabel;
+    private final JLabel totalAvgDeltaLabel;
+
+    private static final class PulseEntry
+    {
+        final JLabel label;
+        final Color base;
+        final long start;
+
+        PulseEntry(JLabel label, Color base, long start)
+        {
+            this.label = label;
+            this.base = base;
+            this.start = start;
+        }
+    }
+
     public ItemTrackerPanel(
             ItemManager itemManager,
             Consumer<Integer> onAddItem,
@@ -166,17 +188,29 @@ public class ItemTrackerPanel extends PluginPanel
         totalAvgLabel.setForeground(COLOR_AVG);
         totalAvgLabel.setFont(totalAvgLabel.getFont().deriveFont(Font.BOLD, 11f));
 
+        totalHighDeltaLabel = createDeltaLabel();
+        totalLowDeltaLabel = createDeltaLabel();
+        totalAvgDeltaLabel = createDeltaLabel();
+
+        // Each row gets an empty spacer matching the delta label's size on the
+        // left, so the centered total stays centered
         totalHighRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 3));
         totalHighRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        totalHighRow.add(createDeltaLabel());
         totalHighRow.add(totalHighLabel);
+        totalHighRow.add(totalHighDeltaLabel);
 
         totalLowRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 3));
         totalLowRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        totalLowRow.add(createDeltaLabel());
         totalLowRow.add(totalLowLabel);
+        totalLowRow.add(totalLowDeltaLabel);
 
         totalAvgRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 3));
         totalAvgRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        totalAvgRow.add(createDeltaLabel());
         totalAvgRow.add(totalAvgLabel);
+        totalAvgRow.add(totalAvgDeltaLabel);
 
         totalsRows.add(totalHighRow);
         totalsRows.add(totalLowRow);
@@ -213,6 +247,61 @@ public class ItemTrackerPanel extends PluginPanel
 
         loadingGlowTimer = new Timer(50, e -> updateLoadingGlow());
         loadingGlowTimer.start();
+
+        pulseTimer = new Timer(25, e -> updatePulses());
+        pulseTimer.start();
+    }
+
+    private static final Dimension DELTA_LABEL_SIZE = new Dimension(12, 12);
+
+    private JLabel createDeltaLabel()
+    {
+        JLabel label = new JLabel();
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 10f));
+        // Fixed size so appearing/disappearing pulse text never shifts the layout
+        label.setPreferredSize(DELTA_LABEL_SIZE);
+        label.setHorizontalAlignment(SwingConstants.CENTER);
+        return label;
+    }
+
+    /**
+     * Starts a price-change pulse on the label: ▲ (green) if the value went up,
+     * ▼ (red) if it went down, – (grey) if unchanged. Opacity ramps 0% -> 100% -> 0%
+     * over {@link #PULSE_DURATION_MS}.
+     */
+    private void startPulse(JLabel label, int delta)
+    {
+        label.setText(delta > 0 ? "▲" : delta < 0 ? "▼" : "–");
+        Color base = delta > 0 ? COLOR_HIGH : delta < 0 ? COLOR_LOW : LOADING_COLOR;
+        label.setForeground(new Color(base.getRed(), base.getGreen(), base.getBlue(), 0));
+        pulseEntries.add(new PulseEntry(label, base, System.currentTimeMillis()));
+    }
+
+    private void updatePulses()
+    {
+        if (pulseEntries.isEmpty())
+        {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        java.util.Iterator<PulseEntry> it = pulseEntries.iterator();
+        while (it.hasNext())
+        {
+            PulseEntry p = it.next();
+            long elapsed = now - p.start;
+            if (elapsed >= PULSE_DURATION_MS)
+            {
+                p.label.setText("");
+                it.remove();
+                continue;
+            }
+
+            float alpha = (float) Math.sin(Math.PI * elapsed / PULSE_DURATION_MS); // 0 -> 1 -> 0
+            p.label.setForeground(new Color(
+                    p.base.getRed(), p.base.getGreen(), p.base.getBlue(),
+                    Math.round(alpha * 255)));
+        }
     }
 
     private void updateLoadingGlow()
@@ -326,7 +415,7 @@ public class ItemTrackerPanel extends PluginPanel
         return row;
     }
 
-    public void rebuild(List<TrackedItem> items, Instant newLastPriceRefresh)
+    public void rebuild(List<TrackedItem> items, Instant newLastPriceRefresh, boolean pricesUpdated)
     {
         this.lastPriceRefresh = newLastPriceRefresh;
         trackedItemIds.clear();
@@ -334,9 +423,17 @@ public class ItemTrackerPanel extends PluginPanel
         SwingUtilities.invokeLater(() ->
         {
             loadingLabels.clear();
+            pulseEntries.clear();
+            totalHighDeltaLabel.setText("");
+            totalLowDeltaLabel.setText("");
+            totalAvgDeltaLabel.setText("");
             trackedItemsPanel.removeAll();
 
             long totalHigh = 0, totalLow = 0, totalAvg = 0;
+            // Totals at previous prices but current quantities, so the totals
+            // pulse reflects price movement only, not quantity changes
+            long prevPriceTotalHigh = 0, prevPriceTotalLow = 0, prevPriceTotalAvg = 0;
+            boolean anyDeltas = false;
             ValueFormat itemFmt = itemValueFormatSupplier.get();
             ValueFormat totalFmt = totalValueFormatSupplier.get();
             PriceDisplay display = priceDisplaySupplier.get();
@@ -360,7 +457,22 @@ public class ItemTrackerPanel extends PluginPanel
                     totalHigh += item.getHighValue();
                     totalLow  += item.getLowValue();
                     totalAvg  += item.getAvgValue();
-                    trackedItemsPanel.add(buildTrackedItemRow(item, itemFmt, display));
+                    if (item.isHasDeltas())
+                    {
+                        anyDeltas = true;
+                        prevPriceTotalHigh += (long) item.getQuantity() * item.getPrevHighPrice();
+                        prevPriceTotalLow  += (long) item.getQuantity() * item.getPrevLowPrice();
+                        prevPriceTotalAvg  += (long) item.getQuantity() * item.getPrevAvgPrice();
+                    }
+                    else
+                    {
+                        // No previous prices; contribute the same value to both
+                        // sides so this item never affects the pulse direction
+                        prevPriceTotalHigh += item.getHighValue();
+                        prevPriceTotalLow  += item.getLowValue();
+                        prevPriceTotalAvg  += item.getAvgValue();
+                    }
+                    trackedItemsPanel.add(buildTrackedItemRow(item, itemFmt, display, pricesUpdated));
                     trackedItemsPanel.add(Box.createVerticalStrut(4));
                 }
             }
@@ -378,13 +490,21 @@ public class ItemTrackerPanel extends PluginPanel
             String avgTotalLabel = display == PriceDisplay.AVERAGE ? "Value" : "Avg";
             totalAvgLabel.setText(avgTotalLabel + ":   " + (hasPrices ? formatGp(totalAvg, totalFmt) : "—"));
 
+            if (pricesUpdated && hasPrices && anyDeltas)
+            {
+                startPulse(totalHighDeltaLabel, Long.compare(totalHigh, prevPriceTotalHigh));
+                startPulse(totalLowDeltaLabel,  Long.compare(totalLow,  prevPriceTotalLow));
+                startPulse(totalAvgDeltaLabel,  Long.compare(totalAvg,  prevPriceTotalAvg));
+            }
+
             trackedItemsPanel.revalidate();
             trackedItemsPanel.repaint();
         });
     }
 
-    private JPanel buildTrackedItemRow(TrackedItem item, ValueFormat fmt, PriceDisplay display)
+    private JPanel buildTrackedItemRow(TrackedItem item, ValueFormat fmt, PriceDisplay display, boolean pricesUpdated)
     {
+        final boolean pulseDeltas = pricesUpdated && item.isHasDeltas();
         JPanel card = new JPanel(new BorderLayout(6, 0));
         card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         card.setBorder(new EmptyBorder(6, 8, 6, 8));
@@ -489,6 +609,12 @@ public class ItemTrackerPanel extends PluginPanel
                 highRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
                 highRow.setAlignmentX(Component.LEFT_ALIGNMENT);
                 highRow.add(highLabel);
+                if (pulseDeltas)
+                {
+                    JLabel delta = createDeltaLabel();
+                    startPulse(delta, item.getHighDelta());
+                    highRow.add(delta);
+                }
                 centerPanel.add(highRow);
 
                 lowLabel = new JLabel("Low: " + formatGp(item.getLowValue(), fmt));
@@ -499,6 +625,12 @@ public class ItemTrackerPanel extends PluginPanel
                 lowRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
                 lowRow.setAlignmentX(Component.LEFT_ALIGNMENT);
                 lowRow.add(lowLabel);
+                if (pulseDeltas)
+                {
+                    JLabel delta = createDeltaLabel();
+                    startPulse(delta, item.getLowDelta());
+                    lowRow.add(delta);
+                }
                 centerPanel.add(lowRow);
             }
             else
@@ -518,6 +650,12 @@ public class ItemTrackerPanel extends PluginPanel
                 avgRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
                 avgRow.setAlignmentX(Component.LEFT_ALIGNMENT);
                 avgRow.add(avgLabel);
+                if (pulseDeltas)
+                {
+                    JLabel delta = createDeltaLabel();
+                    startPulse(delta, item.getAvgDelta());
+                    avgRow.add(delta);
+                }
                 centerPanel.add(avgRow);
             }
             else

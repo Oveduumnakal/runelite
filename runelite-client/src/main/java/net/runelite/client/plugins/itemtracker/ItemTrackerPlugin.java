@@ -339,6 +339,16 @@ public class ItemTrackerPlugin extends Plugin
                 WikiRealtimePriceClient.ItemPrices prices = all.get(item.getItemId());
                 if (prices != null)
                 {
+                    if (item.hasPrices())
+                    {
+                        item.setHighDelta(Long.compare(prices.getHigh(), item.getHighPrice()));
+                        item.setLowDelta(Long.compare(prices.getLow(), item.getLowPrice()));
+                        item.setAvgDelta(Long.compare(prices.avg(), item.getAvgPrice()));
+                        item.setPrevHighPrice(item.getHighPrice());
+                        item.setPrevLowPrice(item.getLowPrice());
+                        item.setPrevAvgPrice(item.getAvgPrice());
+                        item.setHasDeltas(true);
+                    }
                     item.setHighPrice(prices.getHigh());
                     item.setLowPrice(prices.getLow());
                     item.setAvgPrice(prices.avg());
@@ -359,7 +369,7 @@ public class ItemTrackerPlugin extends Plugin
             }
 
             lastPriceRefresh = Instant.now();
-            refreshPanel();
+            refreshPanel(true);
         });
     }
 
@@ -704,10 +714,15 @@ public class ItemTrackerPlugin extends Plugin
 
     private void refreshPanel()
     {
+        refreshPanel(false);
+    }
+
+    private void refreshPanel(boolean pricesUpdated)
+    {
         checkValueThreshold();
         final Instant refresh = lastPriceRefresh;
         SwingUtilities.invokeLater(() ->
-                panel.rebuild(new ArrayList<>(trackedItems.values()), refresh)
+                panel.rebuild(new ArrayList<>(trackedItems.values()), refresh, pricesUpdated)
         );
     }
 

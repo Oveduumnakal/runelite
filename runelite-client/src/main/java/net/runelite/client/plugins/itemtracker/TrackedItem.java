@@ -22,6 +22,17 @@ public class TrackedItem
     /** Average of high + low per item */
     private long avgPrice;
 
+    /** Price movement since the previous refresh: -1 down, 0 unchanged, 1 up */
+    private int highDelta;
+    private int lowDelta;
+    private int avgDelta;
+    /** Prices from the previous refresh, for price-only total comparisons */
+    private long prevHighPrice;
+    private long prevLowPrice;
+    private long prevAvgPrice;
+    /** True once deltas have been computed (requires two completed price loads) */
+    private boolean hasDeltas;
+
     public long getHighValue()
     {
         return (long) quantity * highPrice;
