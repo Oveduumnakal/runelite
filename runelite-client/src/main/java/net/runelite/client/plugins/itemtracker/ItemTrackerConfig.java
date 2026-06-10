@@ -5,6 +5,7 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.Notification;
 import net.runelite.client.config.Range;
 
 @ConfigGroup("itemtracker")
@@ -119,9 +120,9 @@ public interface ItemTrackerConfig extends Config
             section = notificationsSection,
             position = 0
     )
-    default boolean notifyOnValueThreshold()
+    default Notification notifyOnValueThreshold()
     {
-        return false;
+        return Notification.OFF;
     }
 
     @Range(min = 0)

@@ -26,8 +26,6 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.Notifier;
-import net.runelite.client.config.Notification;
-import net.runelite.client.config.RuneLiteConfig;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -83,9 +81,6 @@ public class ItemTrackerPlugin extends Plugin
 
     @Inject
     private Notifier notifier;
-
-    @Inject
-    private RuneLiteConfig runeLiteConfig;
 
     @Inject
     private OverlayManager overlayManager;
@@ -645,7 +640,7 @@ public class ItemTrackerPlugin extends Plugin
 
     private void checkValueThreshold()
     {
-        if (!config.notifyOnValueThreshold())
+        if (!config.notifyOnValueThreshold().isEnabled())
         {
             return;
         }
@@ -686,7 +681,7 @@ public class ItemTrackerPlugin extends Plugin
 
                 valueThresholdNotified = true;
                 lastThresholdNotification = now;
-                notifier.notify(buildSendWhenFocusedNotification(),
+                notifier.notify(config.notifyOnValueThreshold(),
                         "Total value of tracked items exceeded " + abbreviateGp(threshold) + " gp");
             }
         }
@@ -694,18 +689,6 @@ public class ItemTrackerPlugin extends Plugin
         {
             valueThresholdNotified = false;
         }
-    }
-
-    private Notification buildSendWhenFocusedNotification()
-    {
-        return new Notification(true, true, true,
-                runeLiteConfig.enableTrayNotifications(), java.awt.TrayIcon.MessageType.NONE,
-                runeLiteConfig.notificationRequestFocus(),
-                runeLiteConfig.notificationSound(), null,
-                runeLiteConfig.notificationVolume(), runeLiteConfig.notificationTimeout(),
-                runeLiteConfig.enableGameMessageNotification(), runeLiteConfig.flashNotification(),
-                runeLiteConfig.notificationFlashColor(),
-                true);
     }
 
     private static String abbreviateGp(long value)
