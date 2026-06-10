@@ -9,9 +9,15 @@ import net.runelite.api.GameState;
 import net.runelite.api.EnumID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.MenuAction;
+import net.runelite.api.MenuEntry;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.VarbitChanged;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.Notifier;
 import net.runelite.client.config.Notification;
@@ -343,6 +349,83 @@ public class ItemTrackerPlugin extends Plugin
                 checkValueThreshold();
                 break;
         }
+    }
+
+    @Subscribe
+    public void onMenuOpened(MenuOpened event)
+    {
+        if (!config.menuTrackItem())
+        {
+            return;
+        }
+
+        final MenuEntry[] entries = event.getMenuEntries();
+        for (int idx = entries.length - 1; idx >= 0; --idx)
+        {
+            final MenuEntry entry = entries[idx];
+            int itemId = getItemIdFromMenuEntry(entry);
+            if (itemId <= 0)
+            {
+                continue;
+            }
+
+            final int canonicalId = itemManager.canonicalize(itemId);
+            final boolean tracked = trackedItems.containsKey(canonicalId);
+
+            // Index 0 is the bottom of the menu ("Cancel"); 1 puts it right above it
+            client.createMenuEntry(1)
+                    .setOption(tracked ? "Stop Tracking" : "Track Item")
+                    .setTarget(entry.getTarget())
+                    .setType(MenuAction.RUNELITE)
+                    .onClick(e ->
+                    {
+                        if (tracked)
+                        {
+                            removeTrackedItem(canonicalId);
+                        }
+                        else
+                        {
+                            addTrackedItem(canonicalId);
+                        }
+                    });
+            return; // one option per menu
+        }
+    }
+
+    /**
+     * Resolves the item ID a menu entry refers to, for ground items and for
+     * items in the inventory or bank. Returns -1 for anything else.
+     */
+    private int getItemIdFromMenuEntry(MenuEntry entry)
+    {
+        switch (entry.getType())
+        {
+            // Ground items: the identifier is the item ID
+            case GROUND_ITEM_FIRST_OPTION:
+            case GROUND_ITEM_SECOND_OPTION:
+            case GROUND_ITEM_THIRD_OPTION:
+            case GROUND_ITEM_FOURTH_OPTION:
+            case GROUND_ITEM_FIFTH_OPTION:
+            case EXAMINE_ITEM_GROUND:
+                return entry.getIdentifier();
+            default:
+                break;
+        }
+
+        Widget w = entry.getWidget();
+        if (w == null)
+        {
+            return -1;
+        }
+
+        int interfaceId = WidgetUtil.componentToInterface(w.getId());
+        if (interfaceId == InterfaceID.INVENTORY
+                || interfaceId == InterfaceID.BANKMAIN
+                || interfaceId == InterfaceID.BANKSIDE)
+        {
+            return w.getItemId();
+        }
+        return -1;
     }
 
     @Subscribe

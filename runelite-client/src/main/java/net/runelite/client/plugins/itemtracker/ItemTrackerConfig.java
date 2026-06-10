@@ -30,6 +30,13 @@ public interface ItemTrackerConfig extends Config
     )
     String notificationsSection = "notifications";
 
+    @ConfigSection(
+            name = "Miscellaneous",
+            description = "Miscellaneous settings",
+            position = 3
+    )
+    String miscellaneousSection = "miscellaneous";
+
     @ConfigItem(
             keyName = "trackedItemIds",
             name = "Tracked Item IDs",
@@ -120,5 +127,17 @@ public interface ItemTrackerConfig extends Config
     default int valueThreshold()
     {
         return 0;
+    }
+
+    @ConfigItem(
+            keyName = "menuTrackItem",
+            name = "Track Item Menu Option",
+            description = "Add a right-click menu option to track/untrack items on the ground, in the bank, or in the inventory",
+            section = miscellaneousSection,
+            position = 0
+    )
+    default boolean menuTrackItem()
+    {
+        return true;
     }
 }
