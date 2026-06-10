@@ -43,14 +43,11 @@ public class ItemTrackerPanel extends PluginPanel
     private final Supplier<PriceDisplay> priceDisplaySupplier;
     private final Supplier<Integer> refreshRateSupplier;
 
-    // Search area
     private final IconTextField searchField;
     private final JPanel searchResultsPanel;
 
-    // Tracked items list
     private final JPanel trackedItemsPanel;
 
-    // Totals
     private final JLabel totalHighLabel;
     private final JLabel totalLowLabel;
     private final JLabel totalAvgLabel;
@@ -62,19 +59,15 @@ public class ItemTrackerPanel extends PluginPanel
     private volatile Instant lastPriceRefresh = null;
     private final java.util.Set<Integer> trackedItemIds = new java.util.HashSet<>();
 
-    // Item card the mouse is currently over, so rebuilds (e.g. on price refresh)
-    // can recreate the row in its hovered "(ea)" state instead of resetting it
     private int hoveredItemId = -1;
     private final Timer refreshAgeTimer;
 
-    // Glow effect for "Prices loading..." labels: opacity cycles 100% -> 20% over 2s
     private static final Color LOADING_COLOR = new Color(150, 150, 150);
     private static final long LOADING_GLOW_PERIOD_MS = 2000;
     private static final float LOADING_GLOW_MIN_ALPHA = 0.2f;
     private final List<JLabel> loadingLabels = new ArrayList<>();
     private final Timer loadingGlowTimer;
 
-    // Price-change indicators (up/down/unchanged), pulsed 0% -> 100% -> 0% opacity on refresh
     private static final long PULSE_DURATION_MS = 500;
     private final List<PulseEntry> pulseEntries = new ArrayList<>();
     private final Timer pulseTimer;
@@ -119,19 +112,16 @@ public class ItemTrackerPanel extends PluginPanel
         setBorder(new EmptyBorder(10, 10, 10, 10));
         setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-        // --- Title ---
         JLabel title = new JLabel("Item Tracker");
         title.setForeground(Color.WHITE);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 16f));
         title.setBorder(new EmptyBorder(0, 0, 4, 0));
 
-        // --- Search results ---
         searchResultsPanel = new JPanel();
         searchResultsPanel.setLayout(new BoxLayout(searchResultsPanel, BoxLayout.Y_AXIS));
         searchResultsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         searchResultsPanel.setVisible(false);
 
-        // --- Search field ---
         searchField = new IconTextField();
         searchField.setIcon(IconTextField.Icon.SEARCH);
         searchField.setPreferredSize(new Dimension(PluginPanel.PANEL_WIDTH - 20, 30));
@@ -146,7 +136,6 @@ public class ItemTrackerPanel extends PluginPanel
             public void changedUpdate(DocumentEvent e) { onSearch(searchField.getText()); }
         });
 
-        // --- Tracked items panel ---
         trackedItemsPanel = new JPanel();
         trackedItemsPanel.setLayout(new BoxLayout(trackedItemsPanel, BoxLayout.Y_AXIS));
         trackedItemsPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -160,9 +149,6 @@ public class ItemTrackerPanel extends PluginPanel
         trackedLabelWrapper.setBackground(ColorScheme.DARK_GRAY_COLOR);
         trackedLabelWrapper.add(trackedLabel, BorderLayout.CENTER);
 
-        // --- Totals panel ---
-        // Same layout/geometry as the item cards (icon WEST, rows CENTER) so the
-        // totals text lines up with the item values
         JPanel totalsPanel = new JPanel(new BorderLayout(6, 0));
         totalsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         totalsPanel.setBorder(new EmptyBorder(6, 8, 6, 8));
@@ -181,8 +167,6 @@ public class ItemTrackerPanel extends PluginPanel
                 new EmptyBorder(10, 0, 0, 0),
                 new MatteBorder(1, 0, 0, 0, new Color(80, 80, 80))
             ),
-            // 12px below the title to match the "Tracked Items" -> first item gap
-            // (4px label inset + the main panel's 8px BorderLayout vgap)
             new EmptyBorder(10, 0, 12, 0)
         ));
 
@@ -206,7 +190,6 @@ public class ItemTrackerPanel extends PluginPanel
         totalLowDeltaLabel = createDeltaLabel();
         totalAvgDeltaLabel = createDeltaLabel();
 
-        // Left-aligned to line up with the tracked item value rows
         totalHighRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         totalHighRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         totalHighRow.add(totalHighLabel);
@@ -227,7 +210,6 @@ public class ItemTrackerPanel extends PluginPanel
         totalsRows.add(totalAvgRow);
         totalsPanel.add(totalsRows, BorderLayout.CENTER);
 
-        // --- Last refresh label ---
         lastRefreshLabel = new JLabel("Prices not yet loaded");
         lastRefreshLabel.setForeground(new Color(150, 150, 150));
         lastRefreshLabel.setFont(lastRefreshLabel.getFont().deriveFont(Font.ITALIC, 10f));
@@ -264,7 +246,6 @@ public class ItemTrackerPanel extends PluginPanel
 
     private static final Dimension DELTA_LABEL_SIZE = new Dimension(12, 12);
 
-    /** Adds a price line to the two-column grid: value label, then an aligned pulse indicator. */
     private void addPriceRow(JPanel pricesPanel, int gridy, JLabel valueLabel, PriceIndicatorMode mode, int delta)
     {
         GridBagConstraints c = new GridBagConstraints();
@@ -274,23 +255,17 @@ public class ItemTrackerPanel extends PluginPanel
         c.insets = new Insets(3, 6, 3, 0);
         pricesPanel.add(valueLabel, c);
 
-        // Always present so the column layout is stable; only pulses on refresh
         JLabel deltaLabel = createDeltaLabel();
         pulseIfShown(deltaLabel, delta, mode);
         c.gridx = 1;
         pricesPanel.add(deltaLabel, c);
 
-        // Filler column soaks up the remaining width, keeping columns packed left
         c.gridx = 2;
         c.weightx = 1;
         c.insets = new Insets(0, 0, 0, 0);
         pricesPanel.add(Box.createHorizontalGlue(), c);
     }
 
-    /**
-     * Updates the totals coin icon to the coin-stack sprite matching the given
-     * gp value (the game varies the coins sprite by quantity).
-     */
     private void updateCoinsIcon(long value)
     {
         int quantity = (int) Math.max(1, Math.min(value, Integer.MAX_VALUE));
@@ -306,18 +281,11 @@ public class ItemTrackerPanel extends PluginPanel
     {
         JLabel label = new JLabel();
         label.setFont(label.getFont().deriveFont(Font.BOLD, 10f));
-        // Fixed size so appearing/disappearing pulse text never shifts the layout
         label.setPreferredSize(DELTA_LABEL_SIZE);
         label.setHorizontalAlignment(SwingConstants.CENTER);
         return label;
     }
 
-    /**
-     * Starts a price-change pulse on the label: ▲ (green) if the value went up,
-     * ▼ (red) if it went down, – (grey) if unchanged. Opacity ramps 0% -> 100% -> 0%
-     * over {@link #PULSE_DURATION_MS}.
-     */
-    /** Starts a pulse if the mode allows it: CHANGE skips the unchanged ("–") indicator. */
     private void pulseIfShown(JLabel label, int delta, PriceIndicatorMode mode)
     {
         if (mode == PriceIndicatorMode.OFF || (mode == PriceIndicatorMode.CHANGE && delta == 0))
@@ -355,7 +323,7 @@ public class ItemTrackerPanel extends PluginPanel
                 continue;
             }
 
-            float alpha = (float) Math.sin(Math.PI * elapsed / PULSE_DURATION_MS); // 0 -> 1 -> 0
+            float alpha = (float) Math.sin(Math.PI * elapsed / PULSE_DURATION_MS);
             p.label.setForeground(new Color(
                     p.base.getRed(), p.base.getGreen(), p.base.getBlue(),
                     Math.round(alpha * 255)));
@@ -370,7 +338,7 @@ public class ItemTrackerPanel extends PluginPanel
         }
 
         double phase = (System.currentTimeMillis() % LOADING_GLOW_PERIOD_MS) / (double) LOADING_GLOW_PERIOD_MS;
-        double wave = (Math.sin(phase * 2 * Math.PI) + 1) / 2; // 0..1
+        double wave = (Math.sin(phase * 2 * Math.PI) + 1) / 2;
         float alpha = LOADING_GLOW_MIN_ALPHA + (1f - LOADING_GLOW_MIN_ALPHA) * (float) wave;
         Color glow = new Color(
                 LOADING_COLOR.getRed(), LOADING_COLOR.getGreen(), LOADING_COLOR.getBlue(),
@@ -488,8 +456,6 @@ public class ItemTrackerPanel extends PluginPanel
             trackedItemsPanel.removeAll();
 
             long totalHigh = 0, totalLow = 0, totalAvg = 0;
-            // Totals at previous prices but current quantities, so the totals
-            // pulse reflects price movement only, not quantity changes
             long prevPriceTotalHigh = 0, prevPriceTotalLow = 0, prevPriceTotalAvg = 0;
             boolean anyDeltas = false;
             ValueFormat itemFmt = itemValueFormatSupplier.get();
@@ -524,8 +490,6 @@ public class ItemTrackerPanel extends PluginPanel
                     }
                     else
                     {
-                        // No previous prices; contribute the same value to both
-                        // sides so this item never affects the pulse direction
                         prevPriceTotalHigh += item.getHighValue();
                         prevPriceTotalLow  += item.getLowValue();
                         prevPriceTotalAvg  += item.getAvgValue();
@@ -565,15 +529,12 @@ public class ItemTrackerPanel extends PluginPanel
     private JPanel buildTrackedItemRow(TrackedItem item, ValueFormat fmt, PriceDisplay display, PriceIndicatorMode indicatorMode)
     {
         final PriceIndicatorMode itemIndicatorMode = item.isHasDeltas() ? indicatorMode : PriceIndicatorMode.OFF;
-        // Rebuilds replace the card under the cursor without firing mouseEntered,
-        // so restore the hovered "(ea)" state for the card the mouse is on
         final boolean hovered = item.getItemId() == hoveredItemId;
         JPanel card = new JPanel(new BorderLayout(6, 0));
         card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         card.setBorder(new EmptyBorder(6, 8, 6, 8));
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
-        // Icon — vertically centered
         JLabel iconLabel = new JLabel();
         iconLabel.setPreferredSize(new Dimension(32, 32));
         iconLabel.setVerticalAlignment(SwingConstants.CENTER);
@@ -581,7 +542,6 @@ public class ItemTrackerPanel extends PluginPanel
         icon.addTo(iconLabel);
         card.add(iconLabel, BorderLayout.WEST);
 
-        // Remove button — top-right, hidden until hover
         final Color REMOVE_COLOR = new Color(200, 60, 60);
         final Color REMOVE_HIDDEN = new Color(0, 0, 0, 0);
         JButton removeBtn = new JButton("✕");
@@ -601,12 +561,10 @@ public class ItemTrackerPanel extends PluginPanel
         eastPanel.add(removeBtn, BorderLayout.NORTH);
         card.add(eastPanel, BorderLayout.EAST);
 
-        // Center: 3 rows
         JPanel centerPanel = new JPanel();
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
         centerPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
-        // Row 1: name + qty on same line
         JLabel nameLabel = new JLabel(item.getName());
         nameLabel.setForeground(Color.WHITE);
         nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 11f));
@@ -622,7 +580,6 @@ public class ItemTrackerPanel extends PluginPanel
         nameRow.add(qtyLabel);
         centerPanel.add(nameRow);
 
-        // Rows 2 & 3: prices
         final JLabel highLabel;
         final JLabel lowLabel;
         final JLabel avgLabel;
@@ -662,8 +619,6 @@ public class ItemTrackerPanel extends PluginPanel
             boolean showHighLow = display == PriceDisplay.HIGH_LOW || display == PriceDisplay.BOTH;
             boolean showAvg     = display == PriceDisplay.AVERAGE  || display == PriceDisplay.BOTH;
 
-            // Two-column grid (value, indicator) so the pulse indicators line up
-            // vertically regardless of each line's text width
             JPanel pricesPanel = new JPanel(new GridBagLayout());
             pricesPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
             pricesPanel.setAlignmentX(Component.LEFT_ALIGNMENT);

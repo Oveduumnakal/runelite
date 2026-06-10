@@ -17,10 +17,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Fetches real-time GE high/low prices from the OSRS Wiki prices API.
- * Endpoint: https://prices.runescape.wiki/api/v1/osrs/latest
- */
 @Slf4j
 public class WikiRealtimePriceClient
 {
@@ -53,11 +49,6 @@ public class WikiRealtimePriceClient
         this.gson = gson;
     }
 
-    /**
-     * Fetches all item prices in one HTTP request.
-     *
-     * @return map of itemId -> ItemPrices, or empty map on failure
-     */
     public Map<Integer, ItemPrices> fetchAll()
     {
         Request request = new Request.Builder()

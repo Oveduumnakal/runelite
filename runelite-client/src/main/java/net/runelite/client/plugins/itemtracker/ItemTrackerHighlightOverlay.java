@@ -10,7 +10,6 @@ import net.runelite.api.widgets.WidgetItem;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.WidgetItemOverlay;
 
-/** Outlines tracked items in the inventory and bank using the item's clickbox bounds. */
 public class ItemTrackerHighlightOverlay extends WidgetItemOverlay
 {
     private final ItemTrackerPlugin plugin;

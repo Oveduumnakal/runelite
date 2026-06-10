@@ -15,7 +15,6 @@ import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
 
-/** Outlines the clickbox of tracked items lying on the ground. */
 public class ItemTrackerGroundOverlay extends Overlay
 {
     private final Client client;

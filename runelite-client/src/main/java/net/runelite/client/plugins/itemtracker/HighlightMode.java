@@ -14,13 +14,11 @@ public enum HighlightMode
         this.displayName = displayName;
     }
 
-    /** True if ground items should be highlighted. */
     public boolean ground()
     {
         return this == GROUND || this == BOTH;
     }
 
-    /** True if inventory and bank items should be highlighted. */
     public boolean invBank()
     {
         return this == INV_BANK || this == BOTH;

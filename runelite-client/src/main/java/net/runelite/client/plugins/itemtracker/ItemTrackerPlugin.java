@@ -113,35 +113,25 @@ public class ItemTrackerPlugin extends Plugin
         RUNE_POUCH_VARBITS = b.build();
     }
 
-    /**
-     * All item containers we scan for tracked items.
-     * Note: herb sack, coal bag, gem bag, fur/meat pouch, and bolt pouch
-     * store their contents via VarBits with no named IDs in the RuneLite API.
-     * The rune pouch is handled separately via {@link #syncRunePouch()}.
-     */
     private static final ImmutableSet<Integer> TRACKED_CONTAINERS = ImmutableSet.of(
-            InventoryID.INV,              // main inventory
-            InventoryID.WORN,             // equipped items
-            InventoryID.BANK,             // bank
-            InventoryID.LOOTING_BAG,      // looting bag
-            InventoryID.SEED_BOX,         // seed box
-            InventoryID.SEED_VAULT,       // seed vault
-            InventoryID.TACKLE_BOX,       // tackle box
-            InventoryID.FORESTRY_KIT,     // forestry kit / log basket
-            InventoryID.HUNTSMANS_KIT,    // huntsman's kit
-            InventoryID.BARBARIAN_KNAPSACK // barbarian knapsack
+            InventoryID.INV,
+            InventoryID.WORN,
+            InventoryID.BANK,
+            InventoryID.LOOTING_BAG,
+            InventoryID.SEED_BOX,
+            InventoryID.SEED_VAULT,
+            InventoryID.TACKLE_BOX,
+            InventoryID.FORESTRY_KIT,
+            InventoryID.HUNTSMANS_KIT,
+            InventoryID.BARBARIAN_KNAPSACK
     );
 
-    // itemId -> TrackedItem
     private final Map<Integer, TrackedItem> trackedItems = new LinkedHashMap<>();
 
-    // containerId -> (itemId -> quantity)  — one entry per TRACKED_CONTAINERS
     private final Map<Integer, Map<Integer, Integer>> containerCounts = new HashMap<>();
 
-    // itemId -> quantity for rune pouch contents (read from VarBits)
     private final Map<Integer, Integer> runePouchCounts = new HashMap<>();
 
-    // Items currently on the ground, for the ground highlight overlay
     private final Map<TileItem, Tile> groundItems = new HashMap<>();
 
     private ItemTrackerPanel panel;
@@ -149,22 +139,12 @@ public class ItemTrackerPlugin extends Plugin
     private ScheduledFuture<?> priceRefreshTask;
     private Instant lastPriceRefresh = null;
 
-    // Latch for the value threshold notification: set when the total avg value first
-    // exceeds the threshold, cleared when it falls back below so it can fire again.
     private boolean valueThresholdNotified = false;
 
-    // False until the first threshold evaluation after startup. The first evaluation
-    // only arms the latch from the current state — without notifying — so a value that
-    // was already above the threshold last session doesn't re-notify on every startup.
     private boolean valueThresholdPrimed = false;
 
-    // When the threshold notification last fired; used to rate-limit re-fires.
     private Instant lastThresholdNotification = null;
     private static final long THRESHOLD_NOTIFY_COOLDOWN_SECONDS = 10;
-
-    // -----------------------------------------------------------------------
-    // Lifecycle
-    // -----------------------------------------------------------------------
 
     @Override
     protected void startUp() throws Exception
@@ -222,14 +202,6 @@ public class ItemTrackerPlugin extends Plugin
         return configManager.getConfig(ItemTrackerConfig.class);
     }
 
-    // -----------------------------------------------------------------------
-    // Scheduling
-    // -----------------------------------------------------------------------
-
-    /**
-     * Schedules (or reschedules) the GE price refresh task using the current config rate.
-     * Called on startup and can be called again if the config changes.
-     */
     private void scheduleRefresh()
     {
         if (priceRefreshTask != null)
@@ -242,10 +214,6 @@ public class ItemTrackerPlugin extends Plugin
                 this::refreshGePrices, 0, rate, TimeUnit.SECONDS
         );
     }
-
-    // -----------------------------------------------------------------------
-    // Persistence
-    // -----------------------------------------------------------------------
 
     private void loadPersistedItems()
     {
@@ -261,7 +229,6 @@ public class ItemTrackerPlugin extends Plugin
             if (part.isEmpty()) continue;
             try
             {
-                // "itemId:quantity", or just "itemId" from older versions
                 String[] fields = part.split(":");
                 int itemId = Integer.parseInt(fields[0].trim());
                 int quantity = fields.length > 1 ? Integer.parseInt(fields[1].trim()) : 0;
@@ -281,10 +248,6 @@ public class ItemTrackerPlugin extends Plugin
                 .collect(Collectors.joining(","));
         config.setTrackedItemIds(ids);
     }
-
-    // -----------------------------------------------------------------------
-    // Add / remove items
-    // -----------------------------------------------------------------------
 
     private void addTrackedItem(int itemId)
     {
@@ -309,7 +272,7 @@ public class ItemTrackerPlugin extends Plugin
             syncQuantitiesForItem(tracked);
             persistTrackedItems();
             refreshPanel();
-            refreshGePrices(); // async HTTP fetch, updates panel again when done
+            refreshGePrices();
         });
     }
 
@@ -320,18 +283,12 @@ public class ItemTrackerPlugin extends Plugin
         refreshPanel();
     }
 
-    // -----------------------------------------------------------------------
-    // GE price fetching
-    // -----------------------------------------------------------------------
-
     private void refreshGePrices()
     {
-        // Runs on the executor thread (not the client thread) — HTTP is fine here
         executor.execute(() ->
         {
             Map<Integer, WikiRealtimePriceClient.ItemPrices> all = wikiPriceClient.fetchAll();
 
-            // An empty map means the fetch itself failed (network/API error)
             boolean fetchFailed = all.isEmpty();
 
             for (TrackedItem item : trackedItems.values())
@@ -356,8 +313,6 @@ public class ItemTrackerPlugin extends Plugin
                 }
                 else if (!item.hasPrices() && item.isTradeable())
                 {
-                    // Fetch failed, or the item is missing from the price data;
-                    // keep any previously loaded prices, otherwise flag the failure
                     item.setPriceLoadFailed(true);
                 }
             }
@@ -372,10 +327,6 @@ public class ItemTrackerPlugin extends Plugin
             refreshPanel(true);
         });
     }
-
-    // -----------------------------------------------------------------------
-    // Inventory / bank event handling
-    // -----------------------------------------------------------------------
 
     @Subscribe
     public void onConfigChanged(ConfigChanged event)
@@ -424,7 +375,6 @@ public class ItemTrackerPlugin extends Plugin
             final int canonicalId = itemManager.canonicalize(itemId);
             final boolean tracked = trackedItems.containsKey(canonicalId);
 
-            // Index 0 is the bottom of the menu ("Cancel"); 1 puts it right above it
             client.createMenuEntry(1)
                     .setOption(tracked
                             ? ColorUtil.prependColorTag("Stop Tracking", config.stopTrackingColor())
@@ -442,19 +392,14 @@ public class ItemTrackerPlugin extends Plugin
                             addTrackedItem(canonicalId);
                         }
                     });
-            return; // one option per menu
+            return;
         }
     }
 
-    /**
-     * Resolves the item ID a menu entry refers to, for ground items and for
-     * items in the inventory or bank. Returns -1 for anything else.
-     */
     private int getItemIdFromMenuEntry(MenuEntry entry)
     {
         switch (entry.getType())
         {
-            // Ground items: the identifier is the item ID
             case GROUND_ITEM_FIRST_OPTION:
             case GROUND_ITEM_SECOND_OPTION:
             case GROUND_ITEM_THIRD_OPTION:
@@ -491,7 +436,6 @@ public class ItemTrackerPlugin extends Plugin
             return;
         }
 
-        // Rebuild the count snapshot for this container
         Map<Integer, Integer> counts = containerCounts.computeIfAbsent(containerId, k -> new HashMap<>());
         counts.clear();
         ItemContainer container = event.getItemContainer();
@@ -510,11 +454,6 @@ public class ItemTrackerPlugin extends Plugin
         refreshPanel();
     }
 
-    /**
-     * Moves "Take" entries for highlighted (tracked) ground items to the top of the
-     * menu, so they take priority in a stack of items. Non-tracked items keep their
-     * standard order relative to each other.
-     */
     @Subscribe
     public void onClientTick(ClientTick event)
     {
@@ -545,8 +484,6 @@ public class ItemTrackerPlugin extends Plugin
             return;
         }
 
-        // Entries later in the array appear higher in the menu and become the
-        // default left-click action, so tracked Takes go last.
         normal.addAll(trackedTakes);
         client.setMenuEntries(normal.toArray(new MenuEntry[0]));
     }
@@ -566,7 +503,6 @@ public class ItemTrackerPlugin extends Plugin
     @Subscribe
     public void onGameStateChanged(GameStateChanged event)
     {
-        // Tiles are invalidated on scene load
         if (event.getGameState() == GameState.LOADING)
         {
             groundItems.clear();
@@ -584,7 +520,6 @@ public class ItemTrackerPlugin extends Plugin
         }
     }
 
-    /** Reads all 6 rune pouch slots from VarBits and rebuilds {@link #runePouchCounts}. Must be on client thread. */
     private void syncRunePouch()
     {
         runePouchCounts.clear();
@@ -602,7 +537,6 @@ public class ItemTrackerPlugin extends Plugin
         }
     }
 
-    /** Recomputes quantities for all tracked items from all container + rune pouch snapshots. */
     private void recomputeAllQuantities()
     {
         for (TrackedItem tracked : trackedItems.values())
@@ -614,19 +548,16 @@ public class ItemTrackerPlugin extends Plugin
             }
             tracked.setQuantity(total);
         }
-        persistTrackedItems(); // keep persisted quantities current for the next session
+        persistTrackedItems();
     }
 
     private void syncQuantitiesForItem(TrackedItem tracked)
     {
-        // While logged out no containers are available; keep the persisted
-        // quantity instead of overwriting it with zero.
         if (client.getGameState() != GameState.LOGGED_IN)
         {
             return;
         }
 
-        // Snapshot all currently loaded item containers
         for (int containerId : TRACKED_CONTAINERS)
         {
             ItemContainer container = client.getItemContainer(containerId);
@@ -646,10 +577,8 @@ public class ItemTrackerPlugin extends Plugin
             }
         }
 
-        // Snapshot rune pouch
         syncRunePouch();
 
-        // Sum across all sources for this item
         int total = runePouchCounts.getOrDefault(tracked.getItemId(), 0);
         for (Map<Integer, Integer> c : containerCounts.values())
         {
@@ -658,11 +587,6 @@ public class ItemTrackerPlugin extends Plugin
         tracked.setQuantity(total);
     }
 
-    // -----------------------------------------------------------------------
-    // Overlay accessors
-    // -----------------------------------------------------------------------
-
-    /** True if the (canonical) item ID is currently tracked. */
     boolean isTracked(int itemId)
     {
         return trackedItems.containsKey(itemId);
@@ -674,11 +598,6 @@ public class ItemTrackerPlugin extends Plugin
     private static final float GLOW_MIN_ALPHA = 0.2f;
     private static final float GLOW_MAX_ALPHA = 1f;
 
-    /**
-     * Opacity for the highlight overlays, oscillating smoothly over time for a
-     * glow/breathing effect. Shared so all highlights pulse in sync. Returns
-     * full opacity when the glow effect is off.
-     */
     float breathingAlpha()
     {
         long period;
@@ -698,19 +617,14 @@ public class ItemTrackerPlugin extends Plugin
         }
 
         double phase = (System.currentTimeMillis() % period) / (double) period;
-        double wave = (Math.sin(phase * 2 * Math.PI) + 1) / 2; // 0..1
+        double wave = (Math.sin(phase * 2 * Math.PI) + 1) / 2;
         return GLOW_MIN_ALPHA + (GLOW_MAX_ALPHA - GLOW_MIN_ALPHA) * (float) wave;
     }
 
-    /** Items currently on the ground, for the ground highlight overlay. */
     Map<TileItem, Tile> getGroundItems()
     {
         return groundItems;
     }
-
-    // -----------------------------------------------------------------------
-    // Panel refresh
-    // -----------------------------------------------------------------------
 
     private void refreshPanel()
     {
@@ -729,15 +643,6 @@ public class ItemTrackerPlugin extends Plugin
         );
     }
 
-    // -----------------------------------------------------------------------
-    // Value threshold notification
-    // -----------------------------------------------------------------------
-
-    /**
-     * Notifies when the total avg value first exceeds the configured threshold.
-     * Latched: won't fire again until the value drops below the threshold and
-     * then exceeds it once more.
-     */
     private void checkValueThreshold()
     {
         if (!config.notifyOnValueThreshold())
@@ -751,8 +656,6 @@ public class ItemTrackerPlugin extends Plugin
             return;
         }
 
-        // Don't evaluate until prices have loaded, otherwise a partial total
-        // could falsely reset (or trigger) the latch.
         boolean hasPrices = trackedItems.values().stream().anyMatch(TrackedItem::hasPrices);
         if (!hasPrices)
         {
@@ -774,8 +677,6 @@ public class ItemTrackerPlugin extends Plugin
         {
             if (!valueThresholdNotified)
             {
-                // Rate limit: skip (without latching) if we notified in the last 10s,
-                // so a still-exceeding value notifies once the cooldown expires.
                 Instant now = Instant.now();
                 if (lastThresholdNotification != null
                         && ChronoUnit.SECONDS.between(lastThresholdNotification, now) < THRESHOLD_NOTIFY_COOLDOWN_SECONDS)
@@ -795,11 +696,6 @@ public class ItemTrackerPlugin extends Plugin
         }
     }
 
-    /**
-     * Mirrors {@code Notifier.defaultNotification} (which is private): uses the user's
-     * global RuneLite notification settings, but forces sendWhenFocused so the threshold
-     * notification fires even while the client window is focused.
-     */
     private Notification buildSendWhenFocusedNotification()
     {
         return new Notification(true, true, true,
@@ -809,10 +705,9 @@ public class ItemTrackerPlugin extends Plugin
                 runeLiteConfig.notificationVolume(), runeLiteConfig.notificationTimeout(),
                 runeLiteConfig.enableGameMessageNotification(), runeLiteConfig.flashNotification(),
                 runeLiteConfig.notificationFlashColor(),
-                true /* sendWhenFocused */);
+                true);
     }
 
-    /** Formats a gp value abbreviated (k/m/b), dropping unnecessary decimals: 50k, 1.25m, 2b. */
     private static String abbreviateGp(long value)
     {
         if (value < 1_000)
@@ -839,7 +734,6 @@ public class ItemTrackerPlugin extends Plugin
         }
 
         String s = String.format("%.2f", scaled);
-        // Trim trailing zeros and a dangling decimal point: "50.00" -> "50", "1.50" -> "1.5"
         s = s.replaceAll("0+$", "").replaceAll("\\.$", "");
         return s + suffix;
     }
