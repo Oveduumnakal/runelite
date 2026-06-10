@@ -364,7 +364,11 @@ class ConfigPanel extends PluginPanel
 			}
 			else if (cid.getType() == int.class)
 			{
-				item.add(createIntSpinner(cd, cid), BorderLayout.EAST);
+				// Label WEST + spinner CENTER so the spinner fills the remaining width
+				item.setLayout(new BorderLayout(20, 0));
+				item.remove(configEntryName);
+				item.add(configEntryName, BorderLayout.WEST);
+				item.add(createIntSpinner(cd, cid), BorderLayout.CENTER);
 			}
 			else if (cid.getType() == double.class)
 			{

@@ -31,6 +31,7 @@ import javax.inject.Inject;
 import javax.swing.*;
 import java.awt.image.BufferedImage;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -131,6 +132,10 @@ public class ItemTrackerPlugin extends Plugin
     // was already above the threshold last session doesn't re-notify on every startup.
     private boolean valueThresholdPrimed = false;
 
+    // When the threshold notification last fired; used to rate-limit re-fires.
+    private Instant lastThresholdNotification = null;
+    private static final long THRESHOLD_NOTIFY_COOLDOWN_SECONDS = 10;
+
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
@@ -177,6 +182,7 @@ public class ItemTrackerPlugin extends Plugin
         lastPriceRefresh = null;
         valueThresholdNotified = false;
         valueThresholdPrimed = false;
+        lastThresholdNotification = null;
     }
 
     @Provides
@@ -200,7 +206,7 @@ public class ItemTrackerPlugin extends Plugin
             priceRefreshTask.cancel(false);
         }
 
-        int rate = Math.max(60, config.geRefreshRate());
+        int rate = Math.max(30, config.geRefreshRate());
         priceRefreshTask = executor.scheduleAtFixedRate(
                 this::refreshGePrices, 0, rate, TimeUnit.SECONDS
         );
@@ -481,7 +487,7 @@ public class ItemTrackerPlugin extends Plugin
             return;
         }
 
-        long threshold = parseThreshold(config.valueThreshold());
+        long threshold = config.valueThreshold();
         if (threshold <= 0)
         {
             return;
@@ -510,7 +516,17 @@ public class ItemTrackerPlugin extends Plugin
         {
             if (!valueThresholdNotified)
             {
+                // Rate limit: skip (without latching) if we notified in the last 10s,
+                // so a still-exceeding value notifies once the cooldown expires.
+                Instant now = Instant.now();
+                if (lastThresholdNotification != null
+                        && ChronoUnit.SECONDS.between(lastThresholdNotification, now) < THRESHOLD_NOTIFY_COOLDOWN_SECONDS)
+                {
+                    return;
+                }
+
                 valueThresholdNotified = true;
+                lastThresholdNotification = now;
                 notifier.notify(buildSendWhenFocusedNotification(),
                         "Total value of tracked items exceeded " + abbreviateGp(threshold) + " gp");
             }
@@ -570,25 +586,4 @@ public class ItemTrackerPlugin extends Plugin
         return s + suffix;
     }
 
-    /** Parses the user-entered threshold, ignoring commas and whitespace. Returns -1 if invalid. */
-    private static long parseThreshold(String value)
-    {
-        if (value == null)
-        {
-            return -1;
-        }
-        String cleaned = value.replace(",", "").trim();
-        if (cleaned.isEmpty())
-        {
-            return -1;
-        }
-        try
-        {
-            return Long.parseLong(cleaned);
-        }
-        catch (NumberFormatException e)
-        {
-            return -1;
-        }
-    }
 }

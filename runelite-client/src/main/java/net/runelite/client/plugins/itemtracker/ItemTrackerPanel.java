@@ -211,7 +211,7 @@ public class ItemTrackerPanel extends PluginPanel
         else
         {
             long secondsAgo = ChronoUnit.SECONDS.between(lastPriceRefresh, Instant.now());
-            long rate = Math.max(60, refreshRateSupplier.get());
+            long rate = Math.max(30, refreshRateSupplier.get());
             long secondsUntil = Math.max(0, rate - secondsAgo);
             lastRefreshLabel.setText("Price refresh in " + secondsUntil + " seconds");
         }

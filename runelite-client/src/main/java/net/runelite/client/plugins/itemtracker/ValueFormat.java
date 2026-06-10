@@ -2,7 +2,7 @@ package net.runelite.client.plugins.itemtracker;
 
 public enum ValueFormat
 {
-    ABBREVIATED("Short (K,M,B)"),
+    ABBREVIATED("Short (k,m,b)"),
     FULL("Full (x,xxx)");
 
     private final String displayName;
