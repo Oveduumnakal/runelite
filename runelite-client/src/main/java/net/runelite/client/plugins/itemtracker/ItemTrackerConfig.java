@@ -186,11 +186,23 @@ public interface ItemTrackerConfig extends Config
     }
 
     @ConfigItem(
+            keyName = "priceChangeIndicator",
+            name = "Price Change Indicator",
+            description = "Pulse an indicator next to prices when they refresh: All also shows unchanged prices, Change only up/down movements",
+            section = miscellaneousSection,
+            position = 1
+    )
+    default PriceIndicatorMode priceChangeIndicator()
+    {
+        return PriceIndicatorMode.CHANGE;
+    }
+
+    @ConfigItem(
             keyName = "trackItemColor",
             name = "Track Item Color",
             description = "Color of the \"Track Item\" context menu entry",
             section = miscellaneousSection,
-            position = 1
+            position = 2
     )
     default Color trackItemColor()
     {
@@ -202,7 +214,7 @@ public interface ItemTrackerConfig extends Config
             name = "Stop Tracking Color",
             description = "Color of the \"Stop Tracking\" context menu entry",
             section = miscellaneousSection,
-            position = 2
+            position = 3
     )
     default Color stopTrackingColor()
     {

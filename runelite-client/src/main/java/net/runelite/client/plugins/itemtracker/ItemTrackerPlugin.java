@@ -721,8 +721,11 @@ public class ItemTrackerPlugin extends Plugin
     {
         checkValueThreshold();
         final Instant refresh = lastPriceRefresh;
+        final PriceIndicatorMode indicatorMode = pricesUpdated
+                ? config.priceChangeIndicator()
+                : PriceIndicatorMode.OFF;
         SwingUtilities.invokeLater(() ->
-                panel.rebuild(new ArrayList<>(trackedItems.values()), refresh, pricesUpdated)
+                panel.rebuild(new ArrayList<>(trackedItems.values()), refresh, indicatorMode)
         );
     }
 
