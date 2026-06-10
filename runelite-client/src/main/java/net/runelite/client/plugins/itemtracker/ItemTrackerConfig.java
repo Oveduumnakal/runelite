@@ -32,9 +32,16 @@ public interface ItemTrackerConfig extends Config
     String notificationsSection = "notifications";
 
     @ConfigSection(
+            name = "Highlighting",
+            description = "Tracked item highlighting settings",
+            position = 3
+    )
+    String highlightingSection = "highlighting";
+
+    @ConfigSection(
             name = "Miscellaneous",
             description = "Miscellaneous settings",
-            position = 3
+            position = 4
     )
     String miscellaneousSection = "miscellaneous";
 
@@ -128,6 +135,42 @@ public interface ItemTrackerConfig extends Config
     default int valueThreshold()
     {
         return 0;
+    }
+
+    @ConfigItem(
+            keyName = "highlightMode",
+            name = "Highlight Tracked Items",
+            description = "Where to outline tracked items",
+            section = highlightingSection,
+            position = 0
+    )
+    default HighlightMode highlightMode()
+    {
+        return HighlightMode.GROUND;
+    }
+
+    @ConfigItem(
+            keyName = "highlightColor",
+            name = "Highlight Color",
+            description = "Color used to outline tracked items",
+            section = highlightingSection,
+            position = 1
+    )
+    default Color highlightColor()
+    {
+        return new Color(0xfb, 0xcd, 0x2b);
+    }
+
+    @ConfigItem(
+            keyName = "glowEffect",
+            name = "Glow Effect",
+            description = "Speed of the highlight's breathing/glow effect",
+            section = highlightingSection,
+            position = 2
+    )
+    default GlowSpeed glowEffect()
+    {
+        return GlowSpeed.MEDIUM;
     }
 
     @ConfigItem(

@@ -11,7 +11,13 @@ import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
+import net.runelite.api.Tile;
+import net.runelite.api.TileItem;
+import net.runelite.api.events.ClientTick;
+import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.ItemDespawned;
+import net.runelite.api.events.ItemSpawned;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InterfaceID;
@@ -31,6 +37,7 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.ImageUtil;
 
@@ -80,6 +87,15 @@ public class ItemTrackerPlugin extends Plugin
     @Inject
     private RuneLiteConfig runeLiteConfig;
 
+    @Inject
+    private OverlayManager overlayManager;
+
+    @Inject
+    private ItemTrackerHighlightOverlay highlightOverlay;
+
+    @Inject
+    private ItemTrackerGroundOverlay groundOverlay;
+
     private static final int[] RUNE_POUCH_TYPE_VARBITS = {
             VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_TYPE_3,
             VarbitID.RUNE_POUCH_TYPE_4, VarbitID.RUNE_POUCH_TYPE_5, VarbitID.RUNE_POUCH_TYPE_6
@@ -124,6 +140,9 @@ public class ItemTrackerPlugin extends Plugin
 
     // itemId -> quantity for rune pouch contents (read from VarBits)
     private final Map<Integer, Integer> runePouchCounts = new HashMap<>();
+
+    // Items currently on the ground, for the ground highlight overlay
+    private final Map<TileItem, Tile> groundItems = new HashMap<>();
 
     private ItemTrackerPanel panel;
     private NavigationButton navButton;
@@ -170,6 +189,8 @@ public class ItemTrackerPlugin extends Plugin
                 .build();
 
         clientToolbar.addNavigation(navButton);
+        overlayManager.add(highlightOverlay);
+        overlayManager.add(groundOverlay);
         loadPersistedItems();
         scheduleRefresh();
     }
@@ -178,6 +199,9 @@ public class ItemTrackerPlugin extends Plugin
     protected void shutDown() throws Exception
     {
         clientToolbar.removeNavigation(navButton);
+        overlayManager.remove(highlightOverlay);
+        overlayManager.remove(groundOverlay);
+        groundItems.clear();
         if (priceRefreshTask != null)
         {
             priceRefreshTask.cancel(false);
@@ -459,6 +483,69 @@ public class ItemTrackerPlugin extends Plugin
         refreshPanel();
     }
 
+    /**
+     * Moves "Take" entries for highlighted (tracked) ground items to the top of the
+     * menu, so they take priority in a stack of items. Non-tracked items keep their
+     * standard order relative to each other.
+     */
+    @Subscribe
+    public void onClientTick(ClientTick event)
+    {
+        if (!config.highlightMode().ground() || client.isMenuOpen())
+        {
+            return;
+        }
+
+        final MenuEntry[] entries = client.getMenuEntries();
+        final List<MenuEntry> normal = new ArrayList<>(entries.length);
+        final List<MenuEntry> trackedTakes = new ArrayList<>();
+
+        for (MenuEntry entry : entries)
+        {
+            if (entry.getType() == MenuAction.GROUND_ITEM_THIRD_OPTION
+                    && isTracked(itemManager.canonicalize(entry.getIdentifier())))
+            {
+                trackedTakes.add(entry);
+            }
+            else
+            {
+                normal.add(entry);
+            }
+        }
+
+        if (trackedTakes.isEmpty())
+        {
+            return;
+        }
+
+        // Entries later in the array appear higher in the menu and become the
+        // default left-click action, so tracked Takes go last.
+        normal.addAll(trackedTakes);
+        client.setMenuEntries(normal.toArray(new MenuEntry[0]));
+    }
+
+    @Subscribe
+    public void onItemSpawned(ItemSpawned event)
+    {
+        groundItems.put(event.getItem(), event.getTile());
+    }
+
+    @Subscribe
+    public void onItemDespawned(ItemDespawned event)
+    {
+        groundItems.remove(event.getItem());
+    }
+
+    @Subscribe
+    public void onGameStateChanged(GameStateChanged event)
+    {
+        // Tiles are invalidated on scene load
+        if (event.getGameState() == GameState.LOADING)
+        {
+            groundItems.clear();
+        }
+    }
+
     @Subscribe
     public void onVarbitChanged(VarbitChanged event)
     {
@@ -542,6 +629,56 @@ public class ItemTrackerPlugin extends Plugin
             total += c.getOrDefault(tracked.getItemId(), 0);
         }
         tracked.setQuantity(total);
+    }
+
+    // -----------------------------------------------------------------------
+    // Overlay accessors
+    // -----------------------------------------------------------------------
+
+    /** True if the (canonical) item ID is currently tracked. */
+    boolean isTracked(int itemId)
+    {
+        return trackedItems.containsKey(itemId);
+    }
+
+    private static final long GLOW_PERIOD_SLOW_MS = 2000;
+    private static final long GLOW_PERIOD_MEDIUM_MS = 1500;
+    private static final long GLOW_PERIOD_FAST_MS = 1000;
+    private static final float GLOW_MIN_ALPHA = 0.2f;
+    private static final float GLOW_MAX_ALPHA = 1f;
+
+    /**
+     * Opacity for the highlight overlays, oscillating smoothly over time for a
+     * glow/breathing effect. Shared so all highlights pulse in sync. Returns
+     * full opacity when the glow effect is off.
+     */
+    float breathingAlpha()
+    {
+        long period;
+        switch (config.glowEffect())
+        {
+            case SLOW:
+                period = GLOW_PERIOD_SLOW_MS;
+                break;
+            case MEDIUM:
+                period = GLOW_PERIOD_MEDIUM_MS;
+                break;
+            case FAST:
+                period = GLOW_PERIOD_FAST_MS;
+                break;
+            default:
+                return GLOW_MAX_ALPHA;
+        }
+
+        double phase = (System.currentTimeMillis() % period) / (double) period;
+        double wave = (Math.sin(phase * 2 * Math.PI) + 1) / 2; // 0..1
+        return GLOW_MIN_ALPHA + (GLOW_MAX_ALPHA - GLOW_MIN_ALPHA) * (float) wave;
+    }
+
+    /** Items currently on the ground, for the ground highlight overlay. */
+    Map<TileItem, Tile> getGroundItems()
+    {
+        return groundItems;
     }
 
     // -----------------------------------------------------------------------
