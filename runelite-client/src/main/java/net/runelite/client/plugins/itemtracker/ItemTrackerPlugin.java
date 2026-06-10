@@ -31,6 +31,7 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.ImageUtil;
 
 import javax.inject.Inject;
@@ -374,7 +375,9 @@ public class ItemTrackerPlugin extends Plugin
 
             // Index 0 is the bottom of the menu ("Cancel"); 1 puts it right above it
             client.createMenuEntry(1)
-                    .setOption(tracked ? "Stop Tracking" : "Track Item")
+                    .setOption(tracked
+                            ? ColorUtil.prependColorTag("Stop Tracking", config.stopTrackingColor())
+                            : ColorUtil.prependColorTag("Track Item", config.trackItemColor()))
                     .setTarget(entry.getTarget())
                     .setType(MenuAction.RUNELITE)
                     .onClick(e ->

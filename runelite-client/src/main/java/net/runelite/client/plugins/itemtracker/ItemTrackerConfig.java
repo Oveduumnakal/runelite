@@ -1,5 +1,6 @@
 package net.runelite.client.plugins.itemtracker;
 
+import java.awt.Color;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -139,5 +140,29 @@ public interface ItemTrackerConfig extends Config
     default boolean menuTrackItem()
     {
         return true;
+    }
+
+    @ConfigItem(
+            keyName = "trackItemColor",
+            name = "Track Item Color",
+            description = "Color of the \"Track Item\" context menu entry",
+            section = miscellaneousSection,
+            position = 1
+    )
+    default Color trackItemColor()
+    {
+        return new Color(0xd8, 0xfb, 0xd4);
+    }
+
+    @ConfigItem(
+            keyName = "stopTrackingColor",
+            name = "Stop Tracking Color",
+            description = "Color of the \"Stop Tracking\" context menu entry",
+            section = miscellaneousSection,
+            position = 2
+    )
+    default Color stopTrackingColor()
+    {
+        return new Color(0xfb, 0xd4, 0xd4);
     }
 }
