@@ -58,6 +58,7 @@ public class ItemTrackerPanel extends PluginPanel
     private final JLabel lastRefreshLabel;
 
     private volatile Instant lastPriceRefresh = null;
+    private final java.util.Set<Integer> trackedItemIds = new java.util.HashSet<>();
     private final Timer refreshAgeTimer;
 
     public ItemTrackerPanel(
@@ -226,6 +227,7 @@ public class ItemTrackerPanel extends PluginPanel
         for (ItemPrice item : results)
         {
             if (shown >= 5) break;
+            if (trackedItemIds.contains(item.getId())) continue;
             JPanel row = buildSearchResultRow(item.getId(), item.getName());
             searchResultsPanel.add(row);
             searchResultsPanel.add(Box.createVerticalStrut(2));
@@ -289,6 +291,8 @@ public class ItemTrackerPanel extends PluginPanel
     public void rebuild(List<TrackedItem> items, Instant newLastPriceRefresh)
     {
         this.lastPriceRefresh = newLastPriceRefresh;
+        trackedItemIds.clear();
+        for (TrackedItem item : items) trackedItemIds.add(item.getItemId());
         SwingUtilities.invokeLater(() ->
         {
             trackedItemsPanel.removeAll();
@@ -397,13 +401,24 @@ public class ItemTrackerPanel extends PluginPanel
         centerPanel.add(nameRow);
 
         // Rows 2 & 3: prices
+        final JLabel highLabel;
+        final JLabel lowLabel;
+        final JLabel avgLabel;
+
         if (!item.hasPrices())
         {
             JLabel loading = new JLabel("Prices loading...");
             loading.setForeground(new Color(150, 150, 150));
             loading.setFont(loading.getFont().deriveFont(Font.ITALIC, 10f));
-            loading.setAlignmentX(Component.LEFT_ALIGNMENT);
-            centerPanel.add(loading);
+
+            JPanel loadingRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+            loadingRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+            loadingRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+            loadingRow.add(loading);
+            centerPanel.add(loadingRow);
+            highLabel = null;
+            lowLabel = null;
+            avgLabel = null;
         }
         else
         {
@@ -412,29 +427,36 @@ public class ItemTrackerPanel extends PluginPanel
 
             if (showHighLow)
             {
-                // Row 2: high + low on same line
-                JLabel highLabel = new JLabel("High: " + formatGp(item.getHighValue(), fmt));
+                highLabel = new JLabel("High: " + formatGp(item.getHighValue(), fmt));
                 highLabel.setForeground(COLOR_HIGH);
                 highLabel.setFont(highLabel.getFont().deriveFont(11f));
 
-                JLabel lowLabel = new JLabel("Low: " + formatGp(item.getLowValue(), fmt));
+                JPanel highRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+                highRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+                highRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+                highRow.add(highLabel);
+                centerPanel.add(highRow);
+
+                lowLabel = new JLabel("Low: " + formatGp(item.getLowValue(), fmt));
                 lowLabel.setForeground(COLOR_LOW);
                 lowLabel.setFont(lowLabel.getFont().deriveFont(11f));
 
-                JPanel highLowRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
-                highLowRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-                highLowRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-                highLowRow.add(highLabel);
-                highLowRow.add(Box.createHorizontalStrut(5));
-                highLowRow.add(lowLabel);
-                centerPanel.add(highLowRow);
+                JPanel lowRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+                lowRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+                lowRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+                lowRow.add(lowLabel);
+                centerPanel.add(lowRow);
+            }
+            else
+            {
+                highLabel = null;
+                lowLabel = null;
             }
 
             if (showAvg)
             {
-                // Row 3: avg
                 String avgLabelText = display == PriceDisplay.AVERAGE ? "Value" : "Avg";
-                JLabel avgLabel = new JLabel(avgLabelText + ": " + formatGp(item.getAvgValue(), fmt));
+                avgLabel = new JLabel(avgLabelText + ": " + formatGp(item.getAvgValue(), fmt));
                 avgLabel.setForeground(COLOR_AVG);
                 avgLabel.setFont(avgLabel.getFont().deriveFont(11f));
 
@@ -443,6 +465,10 @@ public class ItemTrackerPanel extends PluginPanel
                 avgRow.setAlignmentX(Component.LEFT_ALIGNMENT);
                 avgRow.add(avgLabel);
                 centerPanel.add(avgRow);
+            }
+            else
+            {
+                avgLabel = null;
             }
         }
 
@@ -454,6 +480,13 @@ public class ItemTrackerPanel extends PluginPanel
             public void mouseEntered(MouseEvent e)
             {
                 removeBtn.setForeground(REMOVE_COLOR);
+                if (highLabel != null) highLabel.setText("High (ea): " + formatGp(item.getHighPrice(), fmt));
+                if (lowLabel  != null) lowLabel.setText("Low (ea): "  + formatGp(item.getLowPrice(),  fmt));
+                if (avgLabel  != null)
+                {
+                    String lbl = display == PriceDisplay.AVERAGE ? "Value" : "Avg";
+                    avgLabel.setText(lbl + " (ea): " + formatGp(item.getAvgPrice(), fmt));
+                }
             }
 
             @Override
@@ -463,6 +496,13 @@ public class ItemTrackerPanel extends PluginPanel
                 if (!card.contains(p))
                 {
                     removeBtn.setForeground(REMOVE_HIDDEN);
+                    if (highLabel != null) highLabel.setText("High: " + formatGp(item.getHighValue(), fmt));
+                    if (lowLabel  != null) lowLabel.setText("Low: "  + formatGp(item.getLowValue(),  fmt));
+                    if (avgLabel  != null)
+                    {
+                        String lbl = display == PriceDisplay.AVERAGE ? "Value" : "Avg";
+                        avgLabel.setText(lbl + ": " + formatGp(item.getAvgValue(), fmt));
+                    }
                 }
             }
         };
