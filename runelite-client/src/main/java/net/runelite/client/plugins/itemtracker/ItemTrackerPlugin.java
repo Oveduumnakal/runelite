@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.google.common.collect.ImmutableSet;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
+import net.runelite.api.GameState;
 import net.runelite.api.EnumID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
@@ -12,6 +13,9 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.client.Notifier;
+import net.runelite.client.config.Notification;
+import net.runelite.client.config.RuneLiteConfig;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -61,6 +65,12 @@ public class ItemTrackerPlugin extends Plugin
 
     @Inject
     private WikiRealtimePriceClient wikiPriceClient;
+
+    @Inject
+    private Notifier notifier;
+
+    @Inject
+    private RuneLiteConfig runeLiteConfig;
 
     private static final int[] RUNE_POUCH_TYPE_VARBITS = {
             VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_TYPE_3,
@@ -112,6 +122,15 @@ public class ItemTrackerPlugin extends Plugin
     private ScheduledFuture<?> priceRefreshTask;
     private Instant lastPriceRefresh = null;
 
+    // Latch for the value threshold notification: set when the total avg value first
+    // exceeds the threshold, cleared when it falls back below so it can fire again.
+    private boolean valueThresholdNotified = false;
+
+    // False until the first threshold evaluation after startup. The first evaluation
+    // only arms the latch from the current state — without notifying — so a value that
+    // was already above the threshold last session doesn't re-notify on every startup.
+    private boolean valueThresholdPrimed = false;
+
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
@@ -156,6 +175,8 @@ public class ItemTrackerPlugin extends Plugin
         containerCounts.clear();
         runePouchCounts.clear();
         lastPriceRefresh = null;
+        valueThresholdNotified = false;
+        valueThresholdPrimed = false;
     }
 
     @Provides
@@ -203,20 +224,23 @@ public class ItemTrackerPlugin extends Plugin
             if (part.isEmpty()) continue;
             try
             {
-                int itemId = Integer.parseInt(part);
-                addTrackedItem(itemId);
+                // "itemId:quantity", or just "itemId" from older versions
+                String[] fields = part.split(":");
+                int itemId = Integer.parseInt(fields[0].trim());
+                int quantity = fields.length > 1 ? Integer.parseInt(fields[1].trim()) : 0;
+                addTrackedItem(itemId, quantity);
             }
             catch (NumberFormatException e)
             {
-                log.warn("Invalid tracked item ID in config: {}", part);
+                log.warn("Invalid tracked item entry in config: {}", part);
             }
         }
     }
 
     private void persistTrackedItems()
     {
-        String ids = trackedItems.keySet().stream()
-                .map(String::valueOf)
+        String ids = trackedItems.values().stream()
+                .map(item -> item.getItemId() + ":" + item.getQuantity())
                 .collect(Collectors.joining(","));
         config.setTrackedItemIds(ids);
     }
@@ -227,6 +251,11 @@ public class ItemTrackerPlugin extends Plugin
 
     private void addTrackedItem(int itemId)
     {
+        addTrackedItem(itemId, 0);
+    }
+
+    private void addTrackedItem(int itemId, int initialQuantity)
+    {
         if (trackedItems.containsKey(itemId))
         {
             return;
@@ -236,6 +265,7 @@ public class ItemTrackerPlugin extends Plugin
         {
             String name = itemManager.getItemComposition(itemId).getName();
             TrackedItem tracked = new TrackedItem(itemId, name);
+            tracked.setQuantity(initialQuantity);
             trackedItems.put(itemId, tracked);
 
             syncQuantitiesForItem(tracked);
@@ -300,6 +330,11 @@ public class ItemTrackerPlugin extends Plugin
                 break;
             case "geRefreshRate":
                 scheduleRefresh();
+                break;
+            case "notifyOnValueThreshold":
+            case "valueThreshold":
+                valueThresholdNotified = false;
+                checkValueThreshold();
                 break;
         }
     }
@@ -373,10 +408,18 @@ public class ItemTrackerPlugin extends Plugin
             }
             tracked.setQuantity(total);
         }
+        persistTrackedItems(); // keep persisted quantities current for the next session
     }
 
     private void syncQuantitiesForItem(TrackedItem tracked)
     {
+        // While logged out no containers are available; keep the persisted
+        // quantity instead of overwriting it with zero.
+        if (client.getGameState() != GameState.LOGGED_IN)
+        {
+            return;
+        }
+
         // Snapshot all currently loaded item containers
         for (int containerId : TRACKED_CONTAINERS)
         {
@@ -415,9 +458,137 @@ public class ItemTrackerPlugin extends Plugin
 
     private void refreshPanel()
     {
+        checkValueThreshold();
         final Instant refresh = lastPriceRefresh;
         SwingUtilities.invokeLater(() ->
                 panel.rebuild(new ArrayList<>(trackedItems.values()), refresh)
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Value threshold notification
+    // -----------------------------------------------------------------------
+
+    /**
+     * Notifies when the total avg value first exceeds the configured threshold.
+     * Latched: won't fire again until the value drops below the threshold and
+     * then exceeds it once more.
+     */
+    private void checkValueThreshold()
+    {
+        if (!config.notifyOnValueThreshold())
+        {
+            return;
+        }
+
+        long threshold = parseThreshold(config.valueThreshold());
+        if (threshold <= 0)
+        {
+            return;
+        }
+
+        // Don't evaluate until prices have loaded, otherwise a partial total
+        // could falsely reset (or trigger) the latch.
+        boolean hasPrices = trackedItems.values().stream().anyMatch(TrackedItem::hasPrices);
+        if (!hasPrices)
+        {
+            return;
+        }
+
+        long totalAvg = trackedItems.values().stream()
+                .mapToLong(TrackedItem::getAvgValue)
+                .sum();
+
+        if (!valueThresholdPrimed)
+        {
+            valueThresholdPrimed = true;
+            valueThresholdNotified = totalAvg > threshold;
+            return;
+        }
+
+        if (totalAvg > threshold)
+        {
+            if (!valueThresholdNotified)
+            {
+                valueThresholdNotified = true;
+                notifier.notify(buildSendWhenFocusedNotification(),
+                        "Total value of tracked items exceeded " + abbreviateGp(threshold) + " gp");
+            }
+        }
+        else
+        {
+            valueThresholdNotified = false;
+        }
+    }
+
+    /**
+     * Mirrors {@code Notifier.defaultNotification} (which is private): uses the user's
+     * global RuneLite notification settings, but forces sendWhenFocused so the threshold
+     * notification fires even while the client window is focused.
+     */
+    private Notification buildSendWhenFocusedNotification()
+    {
+        return new Notification(true, true, true,
+                runeLiteConfig.enableTrayNotifications(), java.awt.TrayIcon.MessageType.NONE,
+                runeLiteConfig.notificationRequestFocus(),
+                runeLiteConfig.notificationSound(), null,
+                runeLiteConfig.notificationVolume(), runeLiteConfig.notificationTimeout(),
+                runeLiteConfig.enableGameMessageNotification(), runeLiteConfig.flashNotification(),
+                runeLiteConfig.notificationFlashColor(),
+                true /* sendWhenFocused */);
+    }
+
+    /** Formats a gp value abbreviated (k/m/b), dropping unnecessary decimals: 50k, 1.25m, 2b. */
+    private static String abbreviateGp(long value)
+    {
+        if (value < 1_000)
+        {
+            return String.valueOf(value);
+        }
+
+        double scaled;
+        String suffix;
+        if (value >= 1_000_000_000)
+        {
+            scaled = value / 1_000_000_000.0;
+            suffix = "b";
+        }
+        else if (value >= 1_000_000)
+        {
+            scaled = value / 1_000_000.0;
+            suffix = "m";
+        }
+        else
+        {
+            scaled = value / 1_000.0;
+            suffix = "k";
+        }
+
+        String s = String.format("%.2f", scaled);
+        // Trim trailing zeros and a dangling decimal point: "50.00" -> "50", "1.50" -> "1.5"
+        s = s.replaceAll("0+$", "").replaceAll("\\.$", "");
+        return s + suffix;
+    }
+
+    /** Parses the user-entered threshold, ignoring commas and whitespace. Returns -1 if invalid. */
+    private static long parseThreshold(String value)
+    {
+        if (value == null)
+        {
+            return -1;
+        }
+        String cleaned = value.replace(",", "").trim();
+        if (cleaned.isEmpty())
+        {
+            return -1;
+        }
+        try
+        {
+            return Long.parseLong(cleaned);
+        }
+        catch (NumberFormatException e)
+        {
+            return -1;
+        }
     }
 }

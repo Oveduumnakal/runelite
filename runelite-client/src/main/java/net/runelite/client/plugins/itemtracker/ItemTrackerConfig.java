@@ -66,4 +66,24 @@ public interface ItemTrackerConfig extends Config
     {
         return 60;
     }
+
+    @ConfigItem(
+            keyName = "notifyOnValueThreshold",
+            name = "Value Notification",
+            description = "Send a notification when the total average value exceeds the threshold"
+    )
+    default boolean notifyOnValueThreshold()
+    {
+        return false;
+    }
+
+    @ConfigItem(
+            keyName = "valueThreshold",
+            name = "Value Threshold (gp)",
+            description = "Total average value that triggers the notification. Commas are allowed, e.g. 1,000,000"
+    )
+    default String valueThreshold()
+    {
+        return "";
+    }
 }
