@@ -300,8 +300,9 @@ public class ItemTrackerPlugin extends Plugin
 
         clientThread.invokeLater(() ->
         {
-            String name = itemManager.getItemComposition(itemId).getName();
-            TrackedItem tracked = new TrackedItem(itemId, name);
+            var composition = itemManager.getItemComposition(itemId);
+            TrackedItem tracked = new TrackedItem(itemId, composition.getName());
+            tracked.setTradeable(composition.isTradeable());
             tracked.setQuantity(initialQuantity);
             trackedItems.put(itemId, tracked);
 
@@ -330,6 +331,9 @@ public class ItemTrackerPlugin extends Plugin
         {
             Map<Integer, WikiRealtimePriceClient.ItemPrices> all = wikiPriceClient.fetchAll();
 
+            // An empty map means the fetch itself failed (network/API error)
+            boolean fetchFailed = all.isEmpty();
+
             for (TrackedItem item : trackedItems.values())
             {
                 WikiRealtimePriceClient.ItemPrices prices = all.get(item.getItemId());
@@ -338,7 +342,20 @@ public class ItemTrackerPlugin extends Plugin
                     item.setHighPrice(prices.getHigh());
                     item.setLowPrice(prices.getLow());
                     item.setAvgPrice(prices.avg());
+                    item.setPriceLoadFailed(false);
                 }
+                else if (!item.hasPrices() && item.isTradeable())
+                {
+                    // Fetch failed, or the item is missing from the price data;
+                    // keep any previously loaded prices, otherwise flag the failure
+                    item.setPriceLoadFailed(true);
+                }
+            }
+
+            if (fetchFailed)
+            {
+                refreshPanel();
+                return;
             }
 
             lastPriceRefresh = Instant.now();

@@ -20,6 +20,7 @@ import java.awt.event.MouseListener;
 import java.text.NumberFormat;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
@@ -61,6 +62,13 @@ public class ItemTrackerPanel extends PluginPanel
     private volatile Instant lastPriceRefresh = null;
     private final java.util.Set<Integer> trackedItemIds = new java.util.HashSet<>();
     private final Timer refreshAgeTimer;
+
+    // Glow effect for "Prices loading..." labels: opacity cycles 100% -> 20% over 2s
+    private static final Color LOADING_COLOR = new Color(150, 150, 150);
+    private static final long LOADING_GLOW_PERIOD_MS = 2000;
+    private static final float LOADING_GLOW_MIN_ALPHA = 0.2f;
+    private final List<JLabel> loadingLabels = new ArrayList<>();
+    private final Timer loadingGlowTimer;
 
     public ItemTrackerPanel(
             ItemManager itemManager,
@@ -202,6 +210,29 @@ public class ItemTrackerPanel extends PluginPanel
 
         refreshAgeTimer = new Timer(1000, e -> updateRefreshLabel());
         refreshAgeTimer.start();
+
+        loadingGlowTimer = new Timer(50, e -> updateLoadingGlow());
+        loadingGlowTimer.start();
+    }
+
+    private void updateLoadingGlow()
+    {
+        if (loadingLabels.isEmpty())
+        {
+            return;
+        }
+
+        double phase = (System.currentTimeMillis() % LOADING_GLOW_PERIOD_MS) / (double) LOADING_GLOW_PERIOD_MS;
+        double wave = (Math.sin(phase * 2 * Math.PI) + 1) / 2; // 0..1
+        float alpha = LOADING_GLOW_MIN_ALPHA + (1f - LOADING_GLOW_MIN_ALPHA) * (float) wave;
+        Color glow = new Color(
+                LOADING_COLOR.getRed(), LOADING_COLOR.getGreen(), LOADING_COLOR.getBlue(),
+                Math.round(alpha * 255));
+
+        for (JLabel label : loadingLabels)
+        {
+            label.setForeground(glow);
+        }
     }
 
     private void updateRefreshLabel()
@@ -302,6 +333,7 @@ public class ItemTrackerPanel extends PluginPanel
         for (TrackedItem item : items) trackedItemIds.add(item.getItemId());
         SwingUtilities.invokeLater(() ->
         {
+            loadingLabels.clear();
             trackedItemsPanel.removeAll();
 
             long totalHigh = 0, totalLow = 0, totalAvg = 0;
@@ -414,8 +446,23 @@ public class ItemTrackerPanel extends PluginPanel
 
         if (!item.hasPrices())
         {
-            JLabel loading = new JLabel("Prices loading...");
-            loading.setForeground(new Color(150, 150, 150));
+            final JLabel loading;
+            if (!item.isTradeable())
+            {
+                loading = new JLabel("Item not tradeable");
+                loading.setForeground(new Color(150, 150, 150));
+            }
+            else if (item.isPriceLoadFailed())
+            {
+                loading = new JLabel("Unable to load price");
+                loading.setForeground(COLOR_LOW);
+            }
+            else
+            {
+                loading = new JLabel("Prices loading...");
+                loading.setForeground(LOADING_COLOR);
+                loadingLabels.add(loading);
+            }
             loading.setFont(loading.getFont().deriveFont(Font.ITALIC, 10f));
 
             JPanel loadingRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
