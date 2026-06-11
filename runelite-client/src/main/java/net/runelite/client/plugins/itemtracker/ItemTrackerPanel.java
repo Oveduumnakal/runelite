@@ -232,7 +232,14 @@ public class ItemTrackerPanel extends PluginPanel
 		totalsRows.add(totalHighRow);
 		totalsRows.add(totalLowRow);
 		totalsRows.add(totalAvgRow);
-		totalsPanel.add(totalsRows, BorderLayout.CENTER);
+
+		JPanel totalsRowsWrapper = new JPanel(new GridBagLayout());
+		totalsRowsWrapper.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		GridBagConstraints wrapC = new GridBagConstraints();
+		wrapC.fill = GridBagConstraints.HORIZONTAL;
+		wrapC.weightx = 1;
+		totalsRowsWrapper.add(totalsRows, wrapC);
+		totalsPanel.add(totalsRowsWrapper, BorderLayout.CENTER);
 
 		lastRefreshLabel = new JLabel("Prices not yet loaded");
 		lastRefreshLabel.setForeground(new Color(150, 150, 150));
